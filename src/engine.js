@@ -92,11 +92,29 @@ export function analysePayments({ order, payments, refunds, ledger, now, payment
     findings.push({ issue: "AMBIGUOUS_PAYMENT_STATE", decision: "INSUFFICIENT_EVIDENCE",
       say: "One of the payment records for this order has an unclear status, so I can't tell yet whether that charge went through. I won't assume either way." });
   }
-  const captured = payments.filter((p) => CAPTURED.has(up(p.value.status)) && Number.isFinite(int(p.value.amount_paise)))
+  // A replayed gateway webhook can create a second row for the SAME charge. Rows sharing a gateway_ref
+  // are one transaction; only distinct gateway references can be a double charge.
+  const seenRef = new Map();
+  const replayed = [];
+  for (const p of payments.slice().sort((a, b) => t(a.value.event_at) - t(b.value.event_at))) {
+    const g = s(p.value.gateway_ref);
+    if (g && seenRef.has(g)) replayed.push(p); else if (g) seenRef.set(g, p);
+  }
+  if (replayed.length) {
+    for (const p of replayed) evidence.push(ev(p.key, "PAYMENTS", "duplicate record of gateway transaction " + s(p.value.gateway_ref) + " (same charge, counted once)"));
+    findings.push({ issue: "DUPLICATE_PAYMENT_EVENT_IGNORED", decision: "RESOLVED_VERIFIED",
+      say: "One of the payment records is a repeated notification of the same transaction, not a second charge, so it isn't counted twice." });
+  }
+  const captured = payments.filter((p) => !replayed.includes(p) && CAPTURED.has(up(p.value.status)) && Number.isFinite(int(p.value.amount_paise)))
     .sort((a, b) => t(a.value.event_at) - t(b.value.event_at));
+  const authorizedOnly = payments.filter((p) => !replayed.includes(p) && up(p.value.status) === "AUTHORIZED");
   for (const p of payments) {
-    if (malformed.includes(p)) continue;
+    if (malformed.includes(p) || replayed.includes(p)) continue;
     evidence.push(ev(p.key, "PAYMENTS", up(p.value.status) + " " + rupees(int(p.value.amount_paise)) + " at " + s(p.value.event_at)));
+  }
+  for (const p of authorizedOnly) {
+    findings.push({ issue: "PAYMENT_AUTHORIZED_NOT_CAPTURED", decision: "ACTION_PENDING", ref: p.key,
+      say: "Your bank has placed a hold of " + rupees(int(p.value.amount_paise)) + " for this payment, but it was never captured by us. A hold that isn't captured is released by your bank automatically; I can't release it from here, and I won't raise a refund for money we didn't take." });
   }
 
   // Refund bookkeeping per payment: processor records + our own refund requests.
@@ -157,7 +175,7 @@ export function analysePayments({ order, payments, refunds, ledger, now, payment
         refundable.push({ payment_id: p.key, amount_paise: remaining(p), reason: "GHOST_ORDER" });
       }
     }
-    if (!captured.length && !malformed.length) {
+    if (!captured.length && !malformed.length && !authorizedOnly.length) {
       findings.push({ issue: "NO_CAPTURED_PAYMENT", decision: "RESOLVED_VERIFIED",
         say: "I can't see a completed charge for this payment reference; it was not captured, so no money was taken for it." });
     }
@@ -179,7 +197,7 @@ export function analysePayments({ order, payments, refunds, ledger, now, payment
         findings.push({ issue: "MULTIPLE_CHARGES_UNCLEAR", decision: "ESCALATION_REQUIRED",
           say: "There is more than one charge on this order, but they don't look like a simple duplicate, so a person needs to check them." });
       }
-    } else if (captured.length === 0 && !malformed.length) {
+    } else if (captured.length === 0 && !malformed.length && !authorizedOnly.length) {
       findings.push({ issue: "NO_CAPTURED_PAYMENT", decision: "RESOLVED_VERIFIED",
         say: "I can't see a completed charge on this order, so no money was taken for it." });
     }
@@ -221,7 +239,16 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
   if (deliveredEv) {
     regression = courier.some((e) => t(e.value.at) > t(deliveredEv.value.at) && COURIER_ORDER.indexOf(up(e.value.event)) < COURIER_ORDER.indexOf("DELIVERED") && COURIER_ORDER.indexOf(up(e.value.event)) >= 0);
   }
-  const notReceived = reported.includes("NOT_RECEIVED");
+  const notReceived = reported.includes("NOT_RECEIVED") || reported.includes("WRONG_ADDRESS");
+  const itemsClaim = reported.includes("MISSING_ITEMS") || reported.includes("WRONG_ITEMS");
+  const kitchen = evs.filter((e) => up(e.value.source) === "KITCHEN");
+  // Cross-system disagreement: order system and courier system must agree on delivery.
+  const statusSaysDelivered = status === "DELIVERED";
+  if (statusSaysDelivered !== !!deliveredEv && status !== "CANCELLED") {
+    findings.push({ issue: "ORDER_COURIER_DISAGREE", decision: "CONFLICTING_RECORDS",
+      say: statusSaysDelivered ? "The restaurant system marks this order delivered, but the courier system has no delivery record for it, so the two systems disagree and I can't treat it as delivered."
+        : "The courier system recorded a delivery, but the restaurant system still shows the order as " + status.toLowerCase().replace(/_/g, " ") + ", so the two systems disagree." });
+  }
   if (status === "CANCELLED") {
     findings.push({ issue: "ORDER_CANCELLED", decision: "RESOLVED_VERIFIED", say: "The restaurant system shows this order as cancelled." });
     return { findings, evidence, flags, recovery: [] };
@@ -241,7 +268,11 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
         say: "The courier marked this order as delivered, but you say it never arrived. For this delivery " + strength + ". A delivered status alone doesn't prove you received it, so I won't treat this as resolved." });
       return { findings, evidence, flags, recovery: ["OPEN_DELIVERY_INVESTIGATION"], dispute: { gpsAtAddress, photo: !!photo } };
     }
-    if (!regression) findings.push({ issue: "DELIVERED", decision: "RESOLVED_VERIFIED",
+    if (itemsClaim) {
+      findings.push({ issue: "ITEMS_CLAIM_UNVERIFIABLE", decision: "ESCALATION_REQUIRED",
+        say: "Our systems record what was ordered (" + s(order.value.items) + ") but not what was inside the bag, so I can't verify missing or wrong items myself. This needs a person to check with the restaurant; I won't promise a refund or re-delivery before they confirm it." });
+    }
+    if (!regression && !itemsClaim && statusSaysDelivered && deliveredEv) findings.push({ issue: "DELIVERED", decision: "RESOLVED_VERIFIED",
       say: "The courier recorded this order as delivered at " + s(deliveredEv ? deliveredEv.value.at : order.value.promised_at) + (photo ? ", with a delivery photo." : ".") });
     return { findings, evidence, flags, recovery: [] };
   }
@@ -257,10 +288,14 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
   }
   const sinceCourier = lastCourier ? mins(now, t(lastCourier.value.at)) : Infinity;
   if (!lastCourier || sinceCourier > POLICY.COURIER_STALL_MIN) {
-    findings.push({ issue: "DELIVERY_STALLED", decision: "ACTION_REQUIRED", overdue_min: Math.round(overdueBy),
-      say: "Your order is " + Math.round(overdueBy) + " minutes past its promised time and the courier hasn't reported any progress " +
-        (lastCourier ? "since " + up(lastCourier.value.event).toLowerCase().replace(/_/g, " ") + " " + Math.round(sinceCourier) + " minutes ago." : "at all.") +
-        " I can't see where it is, so I won't guess." });
+    const kAccepted = kitchen.some((e) => up(e.value.event) === "ACCEPTED");
+    const kReady = kitchen.some((e) => up(e.value.event) === "READY");
+    const where = !kAccepted ? "the restaurant has not confirmed receiving the order"
+      : !lastCourier && kReady ? "the food was ready at the restaurant but no delivery partner has been assigned"
+      : !lastCourier ? "the restaurant accepted it but there is no courier activity at all"
+      : "the courier hasn't reported any progress since " + up(lastCourier.value.event).toLowerCase().replace(/_/g, " ") + " " + Math.round(sinceCourier) + " minutes ago";
+    findings.push({ issue: !kAccepted ? "KITCHEN_NOT_CONFIRMED" : "DELIVERY_STALLED", decision: "ACTION_REQUIRED", overdue_min: Math.round(overdueBy),
+      say: "Your order is " + Math.round(overdueBy) + " minutes past its promised time and " + where + ". I can't see where it is, so I won't guess." });
     return { findings, evidence, flags, recovery: ["OPEN_DELIVERY_INVESTIGATION", "REQUEST_REFUND"] };
   }
   findings.push({ issue: "DELIVERY_LATE_MOVING", decision: "ACTION_PENDING", overdue_min: Math.round(overdueBy),
