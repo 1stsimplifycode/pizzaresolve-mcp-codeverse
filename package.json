@@ -1,0 +1,17 @@
+{
+  "name": "pizzaresolve-mcp-codeverse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PizzaResolve_MCP_Codeverse - evidence-driven pizza order recovery tools for the Talkdesk AI Agent Platform (Team CodeVerse)",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "seed": "node src/seed.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.17.5",
+    "zod": "3.25.76"
+  }
+}

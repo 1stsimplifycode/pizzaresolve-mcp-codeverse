@@ -1,0 +1,9 @@
+{
+  "customers": "6ae8db55134c9b1ff90d85e4",
+  "orders": "6ae8db55134c9b1ff90d85e5",
+  "payments": "6ae8db56f1836893ae20ca9b",
+  "events": "6ae8db56f1836893ae20ca9c",
+  "refunds": "6ae8db56134c9b1ff90d85e6",
+  "ledger": "6ae8db57f1836893ae20ca9d",
+  "config": "6ae8db57134c9b1ff90d85e7"
+}

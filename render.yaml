@@ -1,0 +1,20 @@
+# Render blueprint for PizzaResolve_MCP_Codeverse (secrets are set in the Render dashboard, never committed)
+services:
+  - type: web
+    name: pizzaresolve-mcp-codeverse
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: PZ_STORE
+        value: talkdesk
+      - key: MCP_BEARER_TOKEN
+        sync: false
+      - key: TD_CLIENT_ID
+        sync: false
+      - key: TD_CLIENT_SECRET
+        sync: false
+      - key: PZ_TABLE_IDS
+        sync: false

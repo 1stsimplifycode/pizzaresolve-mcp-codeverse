@@ -1,0 +1,62 @@
+{
+  "at": "2026-11-02T18:52:10.158Z",
+  "passed": 11,
+  "total": 11,
+  "results": [
+    {
+      "id": "L-S1-verify",
+      "pass": true,
+      "detail": "verified=true"
+    },
+    {
+      "id": "L-S1-ghost",
+      "pass": true,
+      "detail": "ACTION_REQUIRED GHOST_ORDER"
+    },
+    {
+      "id": "L-S2-stalled",
+      "pass": true,
+      "detail": "ACTION_REQUIRED DELIVERY_STALLED"
+    },
+    {
+      "id": "L-S3-dispute",
+      "pass": true,
+      "detail": "CONFLICTING_RECORDS DELIVERY_DISPUTED"
+    },
+    {
+      "id": "L-S5-cross-customer",
+      "pass": true,
+      "detail": "REFERENCE_NOT_IN_VERIFIED_ACCOUNT"
+    },
+    {
+      "id": "L-S8-outage",
+      "pass": true,
+      "detail": "INSUFFICIENT_EVIDENCE PAYMENT_SYSTEM_UNAVAILABLE+ON_THE_WAY"
+    },
+    {
+      "id": "L-A1-injection",
+      "pass": true,
+      "detail": "flags=[{\"ref\":\"EVT-7009-1\",\"flag\":\"UNTRUSTED_TEXT_IGNORED\"}]"
+    },
+    {
+      "id": "L-E-settled",
+      "pass": true,
+      "detail": "RESOLVED_VERIFIED"
+    },
+    {
+      "id": "L-S4-duplicate-detected",
+      "pass": true,
+      "detail": "DUPLICATE_CHARGE+DELIVERED"
+    },
+    {
+      "id": "L-S6-concurrent-one-row",
+      "pass": true,
+      "detail": "rows=1 outcomes=REQUESTED,ALREADY_REQUESTED,ALREADY_REQUESTED"
+    },
+    {
+      "id": "L-S9-escalation-truthful",
+      "pass": true,
+      "detail": "QUEUED ESC-ORD-7099"
+    }
+  ]
+}
