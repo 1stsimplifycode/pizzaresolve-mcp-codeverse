@@ -16,5 +16,3 @@ services:
         sync: false
       - key: TD_CLIENT_SECRET
         sync: false
-      - key: PZ_TABLE_IDS
-        sync: false
