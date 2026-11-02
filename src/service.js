@@ -5,6 +5,7 @@ import { reconcile, checkIdentity, countRecentFailures, POLICY, rupees, s, hasIn
 import { StoreUnavailable, UnknownOutcome } from "./store.js";
 
 const up = (v) => s(v).toUpperCase();
+const mins = (a, b) => (a - b) / 60000;
 const LOCKED_MSG = "For security, I can't check this order any further right now. Please try again later or contact us from the phone number on the account.";
 const NOT_VERIFIED_MSG = "I couldn't verify those details. To look at an order I need the order or payment reference, the last 4 digits of the phone number on the account, and the delivery postcode.";
 const UNAVAILABLE_MSG = "I can't reach our order systems right now, so I can't confirm anything about this order. Nothing has been changed. Please try again shortly.";
@@ -81,7 +82,7 @@ export class PizzaService {
   }
 
   // ---------- tool 1: identity & order association ----------
-  async verifyCustomer({ reference, phone_last4, postcode, requester = "self" }) {
+  async verifyCustomer({ reference, phone_last4, postcode, requester = "self", conversation_id = "" }) {
     const ref = normaliseRef(reference);
     const now = this.now();
     if (!ref) return { verified: false, decision: "INSUFFICIENT_EVIDENCE", reason_code: "INVALID_REFERENCE", customer_message: "Please give your order number (like ORD-7001) or the payment reference from your bank message (like PAY-9001)." };
@@ -95,17 +96,39 @@ export class PizzaService {
       this.log({ tool: "verify_customer", ref, result: "LOCKED" });
       return { verified: false, decision: "SECURITY_BLOCKED", reason_code: "TOO_MANY_ATTEMPTS", customer_message: LOCKED_MSG };
     }
-    if (s(requester).toLowerCase() !== "self") {
-      return { verified: false, decision: "SECURITY_BLOCKED", reason_code: "THIRD_PARTY_REQUEST", customer_message: "I can only discuss an order with the account holder. The account holder can contact us directly, and I'm happy to help with any order of your own." };
+    // Conversation-scoped controls (PZ-D1): the Talkdesk interaction id is supplied by the platform, not the caller.
+    // A third-party claim is sticky for the whole conversation; "actually it's mine" afterwards is refused.
+    const cid = /^[A-Za-z0-9-]{8,64}$/.test(s(conversation_id)) ? s(conversation_id) : "";
+    const THIRD_PARTY_MSG = "I can only discuss an order with the account holder. The account holder can contact us directly, and I'm happy to help with any order of your own.";
+    // Reference-scoped pause: works even when the platform does not supply a conversation id.
+    const recentThirdParty = ledger.some((l) => up(l.value.kind) === "THIRD_PARTY_CLAIM" && up(l.value.ref) === ref && mins(now, Date.parse(l.value.created_at)) <= POLICY.LOCKOUT_WINDOW_MIN);
+    if (recentThirdParty) {
+      this.log({ tool: "verify_customer", ref, result: "THIRD_PARTY_PAUSE" });
+      return { verified: false, decision: "SECURITY_BLOCKED", reason_code: "THIRD_PARTY_LOCK", customer_message: "This order was recently asked about by someone who said it wasn't theirs, so for security I can't verify it right now. The account holder can try again in 30 minutes or contact us from the phone number on the account." };
+    }
+    if (cid && ledger.some((l) => l.key === "DENY-" + cid)) {
+      this.log({ tool: "verify_customer", ref, result: "CONVERSATION_DENIED" });
+      return { verified: false, decision: "SECURITY_BLOCKED", reason_code: "THIRD_PARTY_LOCK", customer_message: "Earlier in this conversation this order was described as belonging to someone else, so I can't verify it here. The account holder can contact us directly in a new conversation." };
+    }
+    if (cid && ledger.filter((l) => up(l.value.kind) === "VERIFY_ATTEMPT" && s(l.value.session) === cid && up(l.value.status) === "FAILED").length >= POLICY.MAX_FAILED_VERIFICATIONS) {
+      this.log({ tool: "verify_customer", ref, result: "CONVERSATION_LOCKED" });
+      return { verified: false, decision: "SECURITY_BLOCKED", reason_code: "TOO_MANY_ATTEMPTS", customer_message: LOCKED_MSG };
+    }
+    const who = s(requester).toLowerCase();
+    if (who && !/^(self|me|myself|mine|own|owner|account holder)$/.test(who)) {
+      if (cid) { try { await this.store.create("ledger", "DENY-" + cid, { kind: "CONVERSATION_DENY", ref, reason: "THIRD_PARTY_REQUEST", created_at: this.iso() }); } catch { /* reply stays a refusal either way */ } }
+      try { await this.store.create("ledger", "TPC-" + ref + "-" + now + "-" + crypto.randomBytes(2).toString("hex").toUpperCase(), { kind: "THIRD_PARTY_CLAIM", ref, status: "FAILED", reason: "THIRD_PARTY_REQUEST", session: cid, created_at: this.iso() }); } catch { /* best effort */ }
+      this.log({ tool: "verify_customer", ref, result: "THIRD_PARTY_BLOCKED", sticky: !!cid });
+      return { verified: false, decision: "SECURITY_BLOCKED", reason_code: "THIRD_PARTY_REQUEST", customer_message: THIRD_PARTY_MSG };
     }
     let customer = null;
     if (b && b.customerIds.length === 1) customer = customers.find((c) => c.key === b.customerIds[0]) || null;
     const conflictOwner = b && b.customerIds.length > 1;
-    const idc = conflictOwner ? { ok: false, code: "OWNERSHIP_CONFLICT" } : checkIdentity({ customer, phoneLast4: phone_last4, postcode, requester });
+    const idc = conflictOwner ? { ok: false, code: "OWNERSHIP_CONFLICT" } : checkIdentity({ customer, phoneLast4: phone_last4, postcode, requester: "self" });
     if (!idc.ok) {
       // Same reply for unknown reference and wrong details: no enumeration oracle.
       const attKey = "ATT-" + ref + "-" + now + "-" + crypto.randomBytes(2).toString("hex").toUpperCase();
-      try { await this.store.create("ledger", attKey, { kind: "VERIFY_ATTEMPT", ref, status: "FAILED", reason: idc.code, created_at: this.iso() }); } catch { /* lockout counting is best-effort; reply stays non-disclosing */ }
+      try { await this.store.create("ledger", attKey, { kind: "VERIFY_ATTEMPT", ref, status: "FAILED", reason: idc.code, session: cid, created_at: this.iso() }); } catch { /* lockout counting is best-effort; reply stays non-disclosing */ }
       const fails = countRecentFailures(ledger, ref, now) + 1;
       this.log({ tool: "verify_customer", ref, result: "FAILED", code: idc.code, fails });
       if (fails >= POLICY.MAX_FAILED_VERIFICATIONS) return { verified: false, decision: "SECURITY_BLOCKED", reason_code: "TOO_MANY_ATTEMPTS", customer_message: LOCKED_MSG };
@@ -158,7 +181,7 @@ export class PizzaService {
   async investigateOrder({ session_id, reference, reported_issues = [] }) {
     const ctx = await this.authorise(session_id, reference);
     if (ctx.err) return ctx.err;
-    const reported = (Array.isArray(reported_issues) ? reported_issues : [reported_issues]).map(up).filter((x) => ["NOT_RECEIVED", "LATE", "CHARGED_TWICE", "ORDER_MISSING", "REFUND_NOT_RECEIVED", "WANTS_HUMAN", "WRONG_ADDRESS", "OTHER"].includes(x));
+    const reported = (Array.isArray(reported_issues) ? reported_issues : [reported_issues]).map(up).filter((x) => ["NOT_RECEIVED", "LATE", "CHARGED_TWICE", "ORDER_MISSING", "REFUND_NOT_RECEIVED", "WANTS_HUMAN", "WRONG_ADDRESS", "MISSING_ITEMS", "WRONG_ITEMS", "OTHER"].includes(x));
     const r = await this.evaluate(ctx, reported);
     this.log({ tool: "investigate_order", ref: ctx.ref, decision: r.decision, reason: r.reason_code });
     return { reference: ctx.ref, order_id: ctx.b.order ? ctx.b.order.key : null, ...r };
@@ -233,7 +256,16 @@ export class PizzaService {
     const existing = ctx.ledger.find((l) => l.key === key);
     if (existing) return { action: "RECORD_HUMAN_REVIEW", outcome: "ALREADY_QUEUED", duplicate_prevented: true, review_ref: key, live_transfer: "NOT_AVAILABLE",
       customer_message: "Your case is already queued for review by a person, reference " + key + ", so you won't need to repeat what you've told me. I can't transfer you to a live agent from this chat." };
-    const r = await this.evaluate(ctx, ["WANTS_HUMAN"]);
+    // PZ-D2: carry the customer's own claims into the human summary (deterministic keyword inference).
+    const said = s(customer_request).toLowerCase();
+    const claims = ["WANTS_HUMAN"];
+    if (/not (been )?(received|delivered|arrived)|never (came|arrived|got)|nobody came|no one came|didn'?t (get|receive|arrive)|did not (get|receive|arrive)|not delivered/.test(said)) claims.push("NOT_RECEIVED");
+    if (/twice|double|two charges|charged 2|duplicate/.test(said)) claims.push("CHARGED_TWICE");
+    if (/late|delay|waiting|still not here/.test(said)) claims.push("LATE");
+    if (/missing|left out/.test(said)) claims.push("MISSING_ITEMS");
+    if (/wrong (item|pizza|order)/.test(said)) claims.push("WRONG_ITEMS");
+    if (/refund/.test(said) && /not (received|got)|haven'?t (received|got)|still waiting/.test(said)) claims.push("REFUND_NOT_RECEIVED");
+    const r = await this.evaluate(ctx, claims);
     // Data minimisation: strip digit runs (phones, cards, postcodes) and emails before persisting.
     const note = s(customer_request).replace(/\d[\d\s-]{3,}\d/g, "[digits removed]").replace(/\S+@\S+/g, "[email removed]").slice(0, 200);
     const value = { kind: "ESCALATION", status: "QUEUED_FOR_HUMAN_REVIEW", order_id: ctx.b.order ? ctx.b.order.key : "", ref: ctx.ref, customer_id: ctx.sess.customer_id,

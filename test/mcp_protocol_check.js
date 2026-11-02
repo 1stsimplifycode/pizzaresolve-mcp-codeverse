@@ -12,11 +12,11 @@ await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestIn
 const tools = await client.listTools();
 console.log("tools:", tools.tools.map((t) => t.name).join(", "));
 const call = async (name, args) => JSON.parse((await client.callTool({ name, arguments: args })).content[0].text);
-const v = await call("verify_customer", { reference: "ORD-7004", phone_last4: "4821", postcode: "560085", requester: "self" });
+const v = await call("verify_customer", { reference: "ORD-7099", phone_last4: "7777", postcode: "560099", requester: "self" });
 console.log("verify:", v.verified, v.data_source);
-const inv = await call("investigate_order", { session_id: v.session_id, reference: "ORD-7004", reported_issues: "CHARGED_TWICE" });
+const inv = await call("investigate_order", { session_id: v.session_id, reference: "ORD-7099", reported_issues: "CHARGED_TWICE" });
 console.log("investigate:", inv.decision, inv.reason_code, JSON.stringify(inv.authorized_actions));
-const r1 = await call("request_refund", { session_id: v.session_id, reference: "ORD-7004", payment_id: "PAY-9004B" });
-const r2 = await call("request_refund", { session_id: v.session_id, reference: "ORD-7004", payment_id: "PAY-9004B" });
+const r1 = await call("request_refund", { session_id: v.session_id, reference: "ORD-7099", payment_id: "PAY-9099B" });
+const r2 = await call("request_refund", { session_id: v.session_id, reference: "ORD-7099", payment_id: "PAY-9099B" });
 console.log("refund #1:", r1.outcome, r1.request_ref, "| refund #2:", r2.outcome, "duplicate_prevented=" + r2.duplicate_prevented);
 await client.close();

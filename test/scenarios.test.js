@@ -306,3 +306,63 @@ test("A4 invalid / injected reference strings are rejected before any lookup", a
     assert.equal(v.reason_code, "INVALID_REFERENCE");
   }
 });
+
+test("PZ-D1 third-party claim is sticky per conversation: 'actually it's mine' is refused", async () => {
+  const { svc, store } = fresh();
+  const cid = "conv-1234567890";
+  const a = await svc.verifyCustomer({ reference: "ORD-7004", phone_last4: "4821", postcode: "560085", requester: "brother", conversation_id: cid });
+  assert.equal(a.reason_code, "THIRD_PARTY_REQUEST");
+  const b = await svc.verifyCustomer({ reference: "ORD-7004", phone_last4: "4821", postcode: "560085", requester: "self", conversation_id: cid });
+  assert.equal(b.verified, false);
+  assert.equal(b.reason_code, "THIRD_PARTY_LOCK");
+  assert.ok(store.t.ledger.has("DENY-" + cid));
+  // Trade-off (documented): within 30 minutes even another conversation on the same order is paused
+  const c = await svc.verifyCustomer({ reference: "ORD-7004", phone_last4: "4821", postcode: "560085", requester: "self", conversation_id: "conv-other-000001" });
+  assert.equal(c.reason_code, "THIRD_PARTY_LOCK");
+});
+
+test("PZ-D1b conversation-wide lockout: guessing across different references in one conversation", async () => {
+  const { svc } = fresh();
+  const cid = "conv-guesser-0001";
+  for (const ref of ["ORD-7002", "ORD-7003", "ORD-7013"]) await svc.verifyCustomer({ reference: ref, phone_last4: "0000", postcode: "000000", conversation_id: cid });
+  const r = await svc.verifyCustomer({ reference: "ORD-7009", phone_last4: "6642", postcode: "560076", conversation_id: cid });
+  assert.equal(r.reason_code, "TOO_MANY_ATTEMPTS");
+});
+
+test("empty requester (unmapped variable) is treated as self, not as a third party", async () => {
+  const { svc } = fresh();
+  const r = await svc.verifyCustomer({ reference: "ORD-7004", phone_last4: "4821", postcode: "560085", requester: "" });
+  assert.equal(r.verified, true);
+});
+
+test("PZ-D1c without a conversation id, a third-party claim pauses that order's verification for 30 minutes", async () => {
+  const nowRef = { v: NOW };
+  const { svc } = fresh(nowRef);
+  const a = await svc.verifyCustomer({ reference: "ORD-7004", phone_last4: "4821", postcode: "560085", requester: "brother" });
+  assert.equal(a.reason_code, "THIRD_PARTY_REQUEST");
+  const b = await svc.verifyCustomer({ reference: "ORD-7004", phone_last4: "4821", postcode: "560085", requester: "self" });
+  assert.equal(b.reason_code, "THIRD_PARTY_LOCK");
+  const other = await svc.verifyCustomer({ reference: "ORD-7002", phone_last4: "3307", postcode: "560034" });
+  assert.equal(other.verified, true); // other orders unaffected
+  nowRef.v = NOW + 31 * 60000;
+  const c = await svc.verifyCustomer({ reference: "ORD-7004", phone_last4: "4821", postcode: "560085", requester: "self" });
+  assert.equal(c.verified, true);
+});
+
+test("PZ-D2 escalation summary carries the customer's dispute, not just the courier status", async () => {
+  const { svc, store } = fresh();
+  const sid = await login(svc, "ORD-7003", "6642", "560076");
+  await svc.recordHumanReview({ session_id: sid, reference: "ORD-7003", customer_request: "Order shows delivered but nobody came, wants a person" });
+  const row = store.t.ledger.get("ESC-ORD-7003").value;
+  assert.match(row.reason, /DELIVERY_DISPUTED/);
+  assert.equal(row.decision, "CONFLICTING_RECORDS");
+});
+
+test("DEMO set: replayed webhook (PAY-8004C, same gateway ref as 8004B) is not counted as a third charge", async () => {
+  const { svc } = fresh();
+  const sid = await login(svc, "ORD-8004", "2468", "560078");
+  const r = await svc.investigateOrder({ session_id: sid, reference: "ORD-8004", reported_issues: ["CHARGED_TWICE"] });
+  assert.match(r.reason_code, /DUPLICATE_CHARGE/);
+  assert.match(r.reason_code, /DUPLICATE_PAYMENT_EVENT_IGNORED/);
+  assert.deepEqual(r.authorized_actions.filter((a) => a.action === "REQUEST_REFUND").map((a) => a.payment_id), ["PAY-8004B"]);
+});

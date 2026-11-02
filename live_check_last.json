@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-02T18:52:10.158Z",
+  "at": "2026-11-02T20:00:33.573Z",
   "passed": 11,
   "total": 11,
   "results": [
@@ -16,12 +16,12 @@
     {
       "id": "L-S2-stalled",
       "pass": true,
-      "detail": "ACTION_REQUIRED DELIVERY_STALLED"
+      "detail": "ACTION_REQUIRED DELIVERY_STALLED+INVESTIGATION_ON_FILE"
     },
     {
       "id": "L-S3-dispute",
       "pass": true,
-      "detail": "CONFLICTING_RECORDS DELIVERY_DISPUTED"
+      "detail": "CONFLICTING_RECORDS DELIVERY_DISPUTED+HUMAN_REVIEW_ON_FILE"
     },
     {
       "id": "L-S5-cross-customer",
@@ -46,17 +46,17 @@
     {
       "id": "L-S4-duplicate-detected",
       "pass": true,
-      "detail": "DUPLICATE_CHARGE+DELIVERED"
+      "detail": "ORDER_COURIER_DISAGREE+REFUND_REQUEST_ON_FILE+DUPLICATE_CHARGE+HUMAN_REVIEW_ON_FILE"
     },
     {
       "id": "L-S6-concurrent-one-row",
       "pass": true,
-      "detail": "rows=1 outcomes=REQUESTED,ALREADY_REQUESTED,ALREADY_REQUESTED"
+      "detail": "rows=1 outcomes=ALREADY_REQUESTED,ALREADY_REQUESTED,ALREADY_REQUESTED"
     },
     {
       "id": "L-S9-escalation-truthful",
       "pass": true,
-      "detail": "QUEUED ESC-ORD-7099"
+      "detail": "ALREADY_QUEUED ESC-ORD-7099"
     }
   ]
 }

@@ -16,7 +16,7 @@ const store = cfg.mode === "talkdesk" ? new TalkdeskStore(cfg.talkdesk) : new Me
 const service = new PizzaService(store, { log });
 const DATA_SOURCE = cfg.mode === "talkdesk" ? "TALKDESK_DATA_TABLES" : "LOCAL_MEMORY_SIMULATION";
 
-const ISSUES = "NOT_RECEIVED, LATE, CHARGED_TWICE, ORDER_MISSING, REFUND_NOT_RECEIVED, WANTS_HUMAN, WRONG_ADDRESS, OTHER";
+const ISSUES = "NOT_RECEIVED, LATE, CHARGED_TWICE, ORDER_MISSING, REFUND_NOT_RECEIVED, WANTS_HUMAN, WRONG_ADDRESS, MISSING_ITEMS, WRONG_ITEMS, OTHER";
 
 function reply(obj) {
   const out = { data_source: DATA_SOURCE, ...obj };
@@ -39,7 +39,8 @@ function buildServer() {
     { reference: z.string().describe("Order number like ORD-7002 or payment reference like PAY-9001"),
       phone_last4: z.string().describe("Last 4 digits of the phone number on the account"),
       postcode: z.string().describe("Delivery postcode"),
-      requester: z.string().optional().describe("'self' if the caller is the account holder, otherwise who they are (e.g. 'brother')") },
+      requester: z.string().optional().describe("'self' if the caller is the account holder, otherwise who they are (e.g. 'brother')"),
+      conversation_id: z.string().optional().describe("Platform conversation/interaction id (mapped by Talkdesk, not typed by the caller)") },
     async (a) => safe("verify_customer", () => service.verifyCustomer(a)));
 
   mcp.tool("investigate_order",
@@ -86,6 +87,8 @@ const server = http.createServer(async (req, res) => {
   let body = "";
   for await (const c of req) { body += c; if (body.length > 256 * 1024) { res.writeHead(413).end(); return; } }
   let parsed; try { parsed = JSON.parse(body); } catch { res.writeHead(400).end(); return; }
+  // Audit trace of every authenticated MCP request (method + tool name only; never arguments).
+  for (const m of Array.isArray(parsed) ? parsed : [parsed]) log({ rpc: m && m.method, tool: m && m.params && m.params.name, ua: String(req.headers["user-agent"] || "").slice(0, 60) });
   const mcp = buildServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on("close", () => { transport.close(); mcp.close(); });

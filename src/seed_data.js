@@ -20,6 +20,9 @@ export function seedRows(now = Date.now()) {
       C("CUS-105", "Rahul", "Menon", "1188", "560011"),
       C("CUS-106", "Imran", "Khan", "5050", "560037", "FLAGGED"),
       C("CUS-199", "Test", "Runner", "7777", "560099"),   // reserved for automated live integration tests
+      // Demo set (Nov 4 live demo) - never used by automated tests
+      C("CUS-201", "Priya", "Nair", "2468", "560078"),
+      C("CUS-202", "Arjun", "Das", "1357", "560102"),
     ],
     orders: [
       // S1 ghost order: no order row exists for checkout CHK-5001 (by design)
@@ -35,6 +38,9 @@ export function seedRows(now = Date.now()) {
       O("ORD-7012", "CUS-105", "CHK-5012", "CANCELLED", 29900, "1x Cheese Burst M", 5800, 5760),                 // refund settled with proof
       O("ORD-7013", "CUS-105", "CHK-5013", "DELIVERED", 61900, "1x Peppy Paneer L", 80, 40),                     // dispute with strong proof of delivery
       O("ORD-7099", "CUS-199", "CHK-5099", "DELIVERED", 25900, "1x Test Margherita S", 300, 260),             // live-test double charge
+      O("ORD-8002", "CUS-201", "CHK-8002", "OUT_FOR_DELIVERY", 58900, "1x Farmhouse L, 1x Choco Lava", 110, 70),   // DEMO vanished delivery
+      O("ORD-8003", "CUS-202", "CHK-8003", "DELIVERED", 47900, "1x Margherita L", 75, 35),                    // DEMO false delivery
+      O("ORD-8004", "CUS-201", "CHK-8004", "DELIVERED", 69800, "2x Veg Extravaganza M", 200, 160),          // DEMO double charge
       O("ORD-7014", "CUS-102", "CHK-5014", "DELIVERED", 47900, "1x Tandoori Veg M", 100, 60),                   // reordered/conflicting courier events
     ],
     payments: [
@@ -53,8 +59,15 @@ export function seedRows(now = Date.now()) {
       P("PAY-9010", "CUS-103", "ORD-7010", "CHK-5010", "PENDING_REVIEW", 42900, 10, "GW-77120010"), // unrecognised state
       P("PAY-9012", "CUS-105", "ORD-7012", "CHK-5012", "CAPTURED", 29900, 5800, "GW-77120012"),
       P("PAY-9013", "CUS-105", "ORD-7013", "CHK-5013", "CAPTURED", 61900, 80, "GW-77120013"),
+      P("PAY-9098", "CUS-199", "", "CHK-5098", "CAPTURED", 19900, 60, "GW-77120098"),          // live-test ghost order (never refunded by tests)
       P("PAY-9099A", "CUS-199", "ORD-7099", "CHK-5099", "CAPTURED", 25900, 300, "GW-77120099"),
       P("PAY-9099B", "CUS-199", "ORD-7099", "CHK-5099", "CAPTURED", 25900, 299.5, "GW-77120999"),
+      P("PAY-8001", "CUS-201", "", "CHK-8001", "CAPTURED", 89900, 50, "GW-88120001"),             // DEMO ghost order (2 pizzas)
+      P("PAY-8002", "CUS-201", "ORD-8002", "CHK-8002", "CAPTURED", 58900, 110, "GW-88120002"),
+      P("PAY-8003", "CUS-202", "ORD-8003", "CHK-8003", "CAPTURED", 47900, 75, "GW-88120003"),
+      P("PAY-8004A", "CUS-201", "ORD-8004", "CHK-8004", "CAPTURED", 69800, 200, "GW-88120004"),
+      P("PAY-8004B", "CUS-201", "ORD-8004", "CHK-8004", "CAPTURED", 69800, 199.4, "GW-88120044"),
+      P("PAY-8004C", "CUS-201", "ORD-8004", "CHK-8004", "CAPTURED", 69800, 199.3, "GW-88120044"),   // replayed webhook of 8004B (same gateway ref)
       P("PAY-9014", "CUS-102", "ORD-7014", "CHK-5014", "CAPTURED", 47900, 100, "GW-77120014"),
     ],
     events: [
@@ -71,6 +84,11 @@ export function seedRows(now = Date.now()) {
       E("EVT-7009-2", "ORD-7009", "POD", "PHOTO", 52),
       E("EVT-7010-1", "ORD-7010", "KITCHEN", "ACCEPTED", 9),
       E("EVT-7013-1", "ORD-7013", "COURIER", "DELIVERED", 42, { courier_id: "RID-02", distance_m: "12" }), E("EVT-7013-2", "ORD-7013", "POD", "PHOTO", 42),
+      E("EVT-8002-1", "ORD-8002", "KITCHEN", "ACCEPTED", 108), E("EVT-8002-2", "ORD-8002", "KITCHEN", "READY", 85),
+      E("EVT-8002-3", "ORD-8002", "COURIER", "ASSIGNED", 84, { courier_id: "RID-51" }), E("EVT-8002-4", "ORD-8002", "COURIER", "PICKED_UP", 80, { courier_id: "RID-51" }),
+      E("EVT-8003-1", "ORD-8003", "KITCHEN", "ACCEPTED", 74), E("EVT-8003-2", "ORD-8003", "COURIER", "PICKED_UP", 50, { courier_id: "RID-52" }),
+      E("EVT-8003-3", "ORD-8003", "COURIER", "DELIVERED", 30, { courier_id: "RID-52", distance_m: "870" }),
+      E("EVT-8004-1", "ORD-8004", "COURIER", "DELIVERED", 165, { courier_id: "RID-53", distance_m: "10" }), E("EVT-8004-2", "ORD-8004", "POD", "PHOTO", 165),
       E("EVT-7014-1", "ORD-7014", "COURIER", "DELIVERED", 50, { courier_id: "RID-05", distance_m: "30" }), E("EVT-7014-2", "ORD-7014", "COURIER", "PICKED_UP", 40, { courier_id: "RID-05" }),
     ],
     refunds: [

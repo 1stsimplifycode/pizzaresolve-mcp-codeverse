@@ -18,9 +18,9 @@ const t0 = Date.now();
 
 // Read-only scenario checks on demo records
 const vs = async (ref, p, pc) => svc.verifyCustomer({ reference: ref, phone_last4: p, postcode: pc, requester: "self" });
-const v1 = await vs("PAY-9001", "4821", "560085");
+const v1 = await vs("PAY-9098", "7777", "560099");
 check("L-S1-verify", v1.verified, "verified=" + v1.verified);
-const r1 = await svc.investigateOrder({ session_id: v1.session_id, reference: "PAY-9001", reported_issues: ["ORDER_MISSING"] });
+const r1 = await svc.investigateOrder({ session_id: v1.session_id, reference: "PAY-9098", reported_issues: ["ORDER_MISSING"] });
 check("L-S1-ghost", r1.decision === "ACTION_REQUIRED" && /GHOST_ORDER/.test(r1.reason_code), r1.decision + " " + r1.reason_code);
 const v2 = await vs("ORD-7002", "3307", "560034");
 const r2 = await svc.investigateOrder({ session_id: v2.session_id, reference: "ORD-7002", reported_issues: ["LATE"] });
