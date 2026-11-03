@@ -7,22 +7,26 @@
 //   create(table, key, value) -> { status: "CREATED", row }  | { status: "CONFLICT" }
 //                                throws UnknownOutcome when the write may or may not have happened
 //   getByKey(table, key)      -> row | null                     throws StoreUnavailable
+//   update(table, key, value) -> { status: "UPDATED", row } | { status: "NOT_FOUND" }   (full-row replace by key)
 
 export class StoreUnavailable extends Error { constructor(m) { super(m); this.code = "STORE_UNAVAILABLE"; } }
 export class UnknownOutcome extends Error { constructor(m) { super(m); this.code = "UNKNOWN_OUTCOME"; } }
 
-export const TABLES = ["customers", "orders", "payments", "events", "refunds", "ledger", "config"];
+export const TABLES = ["customers", "orders", "payments", "events", "refunds", "ledger", "config", "details", "promotions", "accounts"];
 
 export class MemoryStore {
   constructor(seed = {}) {
     this.t = {};
     for (const name of TABLES) this.t[name] = new Map();
     for (const [name, rows] of Object.entries(seed)) { this.t[name] ||= new Map(); for (const r of rows) this.t[name].set(r.key, { id: "mem-" + r.key, key: r.key, value: { ...r.value } }); }
-    this.faults = {};        // table -> "UNAVAILABLE" | "TIMEOUT_AFTER_WRITE" | "TIMEOUT_BEFORE_WRITE"
+    this.faults = {};        // table -> "UNAVAILABLE" | "TIMEOUT_AFTER_WRITE" | "TIMEOUT_BEFORE_WRITE" | "SLOW" | "MALFORMED"
     this.calls = [];
+    this.latencyMs = {};     // table -> artificial read latency (concurrency tests)
   }
   async list(table) {
-    this.calls.push(["list", table]);
+    this.calls.push(["list", table, Date.now()]);
+    if (this.latencyMs[table]) await new Promise((r) => setTimeout(r, this.latencyMs[table]));
+    if (this.faults[table] === "SLOW") await new Promise((r) => setTimeout(r, 3000).unref());
     if (this.faults[table] === "UNAVAILABLE") throw new StoreUnavailable(table + " unavailable");
     return [...this.t[table].values()].map((r) => ({ ...r, value: { ...r.value } }));
   }
@@ -40,6 +44,15 @@ export class MemoryStore {
     this.t[table].set(key, row);
     if (f === "TIMEOUT_AFTER_WRITE") { delete this.faults[table]; throw new UnknownOutcome("timeout after write"); }
     return { status: "CREATED", row };
+  }
+  async update(table, key, value) {
+    this.calls.push(["update", table, key]);
+    if (this.faults[table] === "UNAVAILABLE" || this.faults[table] === "UPDATE_FAILS") throw new UnknownOutcome("update failed");
+    const cur = this.t[table].get(key);
+    if (!cur) return { status: "NOT_FOUND" };
+    const row = { ...cur, value: { ...value } };
+    this.t[table].set(key, row);
+    return { status: "UPDATED", row };
   }
 }
 
@@ -137,5 +150,22 @@ export class TalkdeskStore {
     if (res.status >= 500 || res.status === 429) throw new UnknownOutcome("create " + key + " http " + res.status);
     const txt = await res.text().catch(() => "");
     throw new StoreUnavailable("create " + key + " rejected " + res.status + " " + txt.slice(0, 200));
+  }
+  // Full-row replace (PUT) located by key. Not retried blindly: caller re-reads to confirm.
+  async update(table, key, value) {
+    const cur = await this.getByKey(table, key);
+    if (!cur) return { status: "NOT_FOUND" };
+    let res;
+    try {
+      const tok = await this.auth();
+      res = await this.fetchT(`${this.o.apiBase}/data-tables/${this.id(table)}/rows/${cur.id}`, {
+        method: "PUT", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value }),
+      });
+    } catch (e) { throw new UnknownOutcome("update " + key + ": " + e.message); }
+    if (res.ok) return { status: "UPDATED", row: { id: cur.id, key, value } };
+    if (res.status >= 500 || res.status === 429) throw new UnknownOutcome("update " + key + " http " + res.status);
+    const txt = await res.text().catch(() => "");
+    throw new StoreUnavailable("update " + key + " rejected " + res.status + " " + txt.slice(0, 200));
   }
 }

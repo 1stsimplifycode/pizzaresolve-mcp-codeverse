@@ -134,6 +134,9 @@ export function analysePayments({ order, payments, refunds, ledger, now, payment
       add(pid, amt);
       findings.push({ issue: "REFUND_SETTLED_WITHOUT_PROOF", decision: "ESCALATION_REQUIRED", ref: r.key,
         say: "Our records mark a refund as settled, but there is no processor confirmation reference, so I can't confirm the money was sent." });
+    } else if (st === "REJECTED") {
+      findings.push({ issue: "REFUND_REJECTED", decision: "ESCALATION_REQUIRED", ref: r.key,
+        say: "A refund was requested for this order, but the refund processor rejected it, so no money has been returned. A person needs to review why before anything is re-issued." });
     } else if (st === "FAILED") {
       findings.push({ issue: "REFUND_FAILED", decision: "ESCALATION_REQUIRED", ref: r.key,
         say: "A refund was started for this order, but the refund processor reports that it failed, so the money has not been returned. This needs a person to re-issue it safely." });

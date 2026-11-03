@@ -3,6 +3,7 @@
 import crypto from "node:crypto";
 import { reconcile, checkIdentity, countRecentFailures, POLICY, rupees, s, hasInjection } from "./engine.js";
 import { StoreUnavailable, UnknownOutcome } from "./store.js";
+import { installMultiAgent } from "./multiagent.js";
 
 const up = (v) => s(v).toUpperCase();
 const mins = (a, b) => (a - b) / 60000;
@@ -280,6 +281,8 @@ export class PizzaService {
     return { action: "RECORD_HUMAN_REVIEW", outcome: "UNKNOWN", live_transfer: "NOT_AVAILABLE", customer_message: "I couldn't confirm that your case was recorded for review, so I won't say it was. Please ask me to try again." };
   }
 }
+
+installMultiAgent(PizzaService);
 
 function base32(buf) {
   const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";

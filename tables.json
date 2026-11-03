@@ -5,5 +5,7 @@
   "events": "6ae8db56f1836893ae20ca9c",
   "refunds": "6ae8db56134c9b1ff90d85e6",
   "ledger": "6ae8db57f1836893ae20ca9d",
-  "config": "6ae8db57134c9b1ff90d85e7"
+  "config": "6ae8db57134c9b1ff90d85e7",
+  "details": "6aea0d70f1836893ae20cbe5",
+  "promotions": "6aea0eadf1836893ae20cbe8"
 }
