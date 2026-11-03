@@ -141,7 +141,16 @@ export function installCollab(Svc) {
   P.recordHumanReview = async function (a) {
     const r = await legacyEsc.call(this, a);
     if (r && !r.err && r.decision !== "SECURITY_BLOCKED" && r.reason_code !== "NOT_VERIFIED") {
-      try { const h = await this.handoffToHuman({ session_id: a.session_id, reference: a.reference, reason: a.customer_request }); if (h.case_id) r.case_id = h.case_id; r.ai_remains_copilot = true; } catch { /* legacy result still valid */ }
+      try {
+        const h = await this.handoffToHuman({ session_id: a.session_id, reference: a.reference, reason: a.customer_request });
+        if (h.case_id) {
+          // One reference for the customer: the shared case id (the internal ESC- row is an audit detail).
+          if (r.customer_message) r.customer_message = s(r.customer_message).replace(/ESC-[A-Z]+-[0-9A-Z]+/g, h.case_id);
+          r.internal_escalation_ref = r.reference || r.escalation_id || null;
+          r.case_id = h.case_id; r.reference_for_customer = h.case_id;
+        }
+        r.ai_remains_copilot = true;
+      } catch { /* legacy result still valid */ }
     }
     return r;
   };

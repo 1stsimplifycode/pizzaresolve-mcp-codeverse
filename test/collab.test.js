@@ -109,3 +109,13 @@ test("C9 after human approval, the customer's next request returns ALREADY_CREAT
   assert.equal((await svc.getCase({ session_id: sid, reference: "ORD-7097" })).status, "RESOLVED");
   assert.equal([...store.t.orders.keys()].filter((k) => k === "ORD-7097R").length, 1);
 });
+
+test("C10 customer only ever sees the CASE- reference, never the internal ESC- id", async () => {
+  const { svc } = fresh();
+  const sid = await login(svc, "ORD-7097");
+  const r = await svc.recordHumanReview({ session_id: sid, reference: "ORD-7097", customer_request: "please check" });
+  assert.doesNotMatch(r.customer_message, /ESC-/, r.customer_message);
+  assert.equal(r.case_id, "CASE-ORD-7097");
+  const inv = await svc.investigateOrder({ session_id: sid, reference: "ORD-7097" });
+  assert.doesNotMatch(inv.customer_message, /ESC-/, inv.customer_message);
+});
