@@ -209,7 +209,7 @@ export function analysePayments({ order, payments, refunds, ledger, now, payment
 }
 
 // ---------- delivery specialist ----------
-export function analyseDelivery({ order, events, reported, now, deliveryAvailable }) {
+export function analyseDelivery({ order, events, reported, now, deliveryAvailable, packing = null }) {
   const findings = [];
   const evidence = [];
   const flags = [];
@@ -247,7 +247,8 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
   const kitchen = evs.filter((e) => up(e.value.source) === "KITCHEN");
   // Cross-system disagreement: order system and courier system must agree on delivery.
   const statusSaysDelivered = status === "DELIVERED";
-  if (statusSaysDelivered !== !!deliveredEv && status !== "CANCELLED") {
+  const stageDelivered = !!packing && up(packing.stage) === "DELIVERED";
+  if (statusSaysDelivered !== (!!deliveredEv || stageDelivered) && status !== "CANCELLED") {
     findings.push({ issue: "ORDER_COURIER_DISAGREE", decision: "CONFLICTING_RECORDS",
       say: statusSaysDelivered ? "The restaurant system marks this order delivered, but the courier system has no delivery record for it, so the two systems disagree and I can't treat it as delivered."
         : "The courier system recorded a delivery, but the restaurant system still shows the order as " + status.toLowerCase().replace(/_/g, " ") + ", so the two systems disagree." });
@@ -270,6 +271,14 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
         evidence_strength: gpsAtAddress && photo ? "STRONG" : gpsAtAddress || photo ? "PARTIAL" : "WEAK",
         say: "The courier marked this order as delivered, but you say it never arrived. For this delivery " + strength + ". A delivered status alone doesn't prove you received it, so I won't treat this as resolved." });
       return { findings, evidence, flags, recovery: ["OPEN_DELIVERY_INVESTIGATION"], dispute: { gpsAtAddress, photo: !!photo } };
+    }
+    const nrm = (x) => up(x).replace(/[^A-Z0-9]/g, "");
+    if (itemsClaim && packing && s(packing.packed) && nrm(packing.ordered) !== nrm(packing.packed)) {
+      // The kitchen packing record proves the mismatch: this is a fixable case, not a human-review case.
+      evidence.push(ev(order.key + ":PACKING", "KITCHEN", "ordered " + s(packing.ordered) + "; packed " + s(packing.packed)));
+      findings.push({ issue: "WRONG_ITEM_VERIFIED", decision: "ACTION_REQUIRED",
+        say: "You're right: the kitchen's packing record shows " + s(packing.packed) + " was packed, but you ordered " + s(packing.ordered) + ". I can send you a free replacement right now." });
+      return { findings, evidence, flags, recovery: ["CREATE_REPLACEMENT"] };
     }
     if (itemsClaim) {
       findings.push({ issue: "ITEMS_CLAIM_UNVERIFIABLE", decision: "ESCALATION_REQUIRED",
@@ -307,10 +316,10 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
 }
 
 // ---------- orchestration of the specialists ----------
-export function reconcile({ order, payments, events, refunds, ledger, reported = [], now, paymentsAvailable = true, deliveryAvailable = true }) {
+export function reconcile({ order, payments, events, refunds, ledger, reported = [], now, paymentsAvailable = true, deliveryAvailable = true, packing = null }) {
   const rep = reported.map(up);
   const pay = analysePayments({ order, payments, refunds, ledger, now, paymentsAvailable });
-  const del = analyseDelivery({ order, events, reported: rep, now, deliveryAvailable });
+  const del = analyseDelivery({ order, events, reported: rep, now, deliveryAvailable, packing });
   const findings = [...pay.findings, ...del.findings];
   const evidence = [...pay.evidence, ...del.evidence];
   const authorized = [];
@@ -328,6 +337,7 @@ export function reconcile({ order, payments, events, refunds, ledger, reported =
       if (!pending) authorized.push({ action: "REQUEST_REFUND", payment_id: first.key, amount_paise: int(first.value.amount_paise), reason: "DELIVERY_STALLED" });
     }
   }
+  if (del.recovery.includes("CREATE_REPLACEMENT")) authorized.push({ action: "CREATE_REPLACEMENT", order_id: order.key });
   if (del.recovery.includes("OPEN_DELIVERY_INVESTIGATION") && !existingInv.length) authorized.push({ action: "OPEN_DELIVERY_INVESTIGATION", order_id: order.key });
   for (const l of existingInv) {
     evidence.push(ev(l.key, "PIZZARESOLVE_LEDGER", "delivery investigation " + up(l.value.status) + " created " + s(l.value.created_at)));

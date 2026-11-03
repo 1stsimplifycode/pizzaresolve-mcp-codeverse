@@ -202,7 +202,9 @@ export class PizzaService {
     try { events = (await this.store.list("events")).filter((e) => ctx.b.order && s(e.value.order_id) === ctx.b.order.key); } catch { deliveryAvailable = false; }
     try { refunds = (await this.store.list("refunds")).filter((r) => ctx.b.refs.includes(up(r.value.payment_id)) || (ctx.b.order && s(r.value.order_id) === ctx.b.order.key)); } catch { paymentsAvailable = false; }
     const related = (ctx.ledger.filter((l) => ["REFUND_REQUEST", "ESCALATION", "DELIVERY_INVESTIGATION"].includes(up(l.value.kind)) && (ctx.b.refs.includes(up(l.value.order_id)) || ctx.b.refs.includes(up(l.value.payment_id)) || ctx.b.refs.includes(up(l.value.ref)))));
-    const r = reconcile({ order: ctx.b.order, payments: ctx.b.payments, events, refunds, ledger: related, reported, now: this.now(), paymentsAvailable, deliveryAvailable });
+    let packing = null;
+    try { const d = ctx.b.order ? await this.store.getByKey("details", ctx.b.order.key) : null; if (d) packing = { ordered: s(d.value.ordered_items || d.value.line_items), packed: s(d.value.packed_items), stage: s(d.value.stage) }; } catch { /* no packing record */ }
+    const r = reconcile({ order: ctx.b.order, payments: ctx.b.payments, events, refunds, ledger: related, reported, now: this.now(), paymentsAvailable, deliveryAvailable, packing });
     r.injected_fault = payFault || delFault ? "YES (synthetic outage configured in PZ_Config_Codeverse)" : "NO";
     return r;
   }

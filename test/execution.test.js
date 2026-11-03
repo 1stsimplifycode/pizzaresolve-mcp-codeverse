@@ -100,3 +100,12 @@ test("E7 outage + recovery: kitchen task write fails -> PARTIAL, retry completes
   assert.equal(r2.outcome, "ALREADY_CREATED");
   assert.ok(store.t.events.get("EVT-ORD-7099R-1"));
 });
+
+test("E8 wrong item with packing proof: investigation authorises replacement, does NOT escalate to a human", async () => {
+  const { svc } = fresh();
+  const sid = await login(svc, "ORD-7099");
+  const r = await svc.investigateOrder({ session_id: sid, reference: "ORD-7099", reported_issues: ["WRONG_ITEMS"] });
+  assert.ok(r.authorized_actions.some((a) => a.action === "CREATE_REPLACEMENT"), JSON.stringify(r));
+  assert.ok(!r.authorized_actions.some((a) => a.action === "RECORD_HUMAN_REVIEW"), JSON.stringify(r));
+  assert.ok(r.findings.some((f) => f.issue === "WRONG_ITEM_VERIFIED"));
+});
