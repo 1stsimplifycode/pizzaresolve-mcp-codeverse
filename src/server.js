@@ -25,9 +25,11 @@ function reply(obj) {
   const out = { data_source: DATA_SOURCE, ...obj };
   return { content: [{ type: "text", text: JSON.stringify(out) }] };
 }
+// customer_message is written in English; the agent must translate it into the language the customer is using.
+const LANG_RULE = "customer_message is in English. Before sending, translate it naturally into the SAME language and script the customer wrote in (Tamil, Telugu, Kannada, Malayalam, Hindi, etc.). Only send English if the customer wrote in English. Keep the facts exactly.";
 async function safe(tool, fn) {
   const started = Date.now();
-  try { const r = await fn(); log({ tool, ms: Date.now() - started, decision: r.decision || r.outcome || (r.verified ? "VERIFIED" : "") }); return reply(r); }
+  try { const r = await fn(); log({ tool, ms: Date.now() - started, decision: r.decision || r.outcome || (r.verified ? "VERIFIED" : "") }); if (r && typeof r === "object" && r.customer_message) r.reply_language_rule = LANG_RULE; return reply(r); }
   catch (e) {
     log({ tool, ms: Date.now() - started, error: String(e && e.message).slice(0, 200) });
     return reply({ decision: "INSUFFICIENT_EVIDENCE", reason_code: "TOOL_ERROR", customer_message: "Something went wrong while checking our systems, so I can't confirm anything right now. Nothing has been changed." });
@@ -47,7 +49,7 @@ function buildServer() {
     async (a) => safe("verify_customer", () => service.verifyCustomer(a)));
 
   mcp.tool("investigate_order",
-    "Case analysis & orchestration: runs the payment specialist and the delivery specialist over the order, payment, kitchen/courier and refund records and reconciles them. Returns decision (RESOLVED_VERIFIED, ACTION_REQUIRED, ACTION_PENDING, INSUFFICIENT_EVIDENCE, CONFLICTING_RECORDS, ESCALATION_REQUIRED, SECURITY_BLOCKED), reason_code, evidence references, authorized_actions and customer_message. Relay customer_message; never add facts it does not contain. Requires session_id from verify_customer.",
+    "Case analysis & orchestration: runs the payment specialist and the delivery specialist over the order, payment, kitchen/courier and refund records and reconciles them. Returns decision (RESOLVED_VERIFIED, ACTION_REQUIRED, ACTION_PENDING, INSUFFICIENT_EVIDENCE, CONFLICTING_RECORDS, ESCALATION_REQUIRED, SECURITY_BLOCKED), reason_code, evidence references, authorized_actions and customer_message. Relay customer_message, translated into the customer's language; never add facts it does not contain. Requires session_id from verify_customer.",
     { session_id: z.string().describe("session_id returned by verify_customer"),
       reference: z.string().describe("Order or payment reference being discussed"),
       reported_issues: z.string().optional().describe("Comma-separated list of what the customer reports, from: " + ISSUES) },
@@ -78,7 +80,7 @@ function buildServer() {
     async (a) => safe("get_customer_context", () => service.customerContext(a)));
 
   mcp.tool("resolve_case",
-    "Case coordination for the Supervisor: runs several department specialists for ONE verified order at the same time (PAYMENT, DELIVERY, ORDER_ISSUE, ADDRESS, COUPON, CANCEL, HUMAN), resolves conflicts between them, and returns one plan with action_ids. Call again with confirm_actions (the action_ids the customer agreed to) to execute them safely in order. Relay customer_message only.",
+    "Case coordination for the Supervisor: runs several department specialists for ONE verified order at the same time (PAYMENT, DELIVERY, ORDER_ISSUE, ADDRESS, COUPON, CANCEL, HUMAN), resolves conflicts between them, and returns one plan with action_ids. Call again with confirm_actions (the action_ids the customer agreed to) to execute them safely in order. Relay customer_message only, translated into the customer's language.",
     { session_id: z.string(), reference: z.string().describe("Order or payment reference"),
       departments: z.string().describe("Comma-separated departments or customer issues, e.g. 'PAYMENT,DELIVERY' or 'NOT_RECEIVED,CHARGED_TWICE'"),
       issue_type: z.string().optional().describe("For ORDER_ISSUE: WRONG_ITEM, MISSING_ITEM, WRONG_QUANTITY, DAMAGED, WRONG_CUSTOMISATION, PARTIAL"),
