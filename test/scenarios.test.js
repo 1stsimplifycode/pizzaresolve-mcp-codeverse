@@ -366,3 +366,13 @@ test("DEMO set: replayed webhook (PAY-8004C, same gateway ref as 8004B) is not c
   assert.match(r.reason_code, /DUPLICATE_PAYMENT_EVENT_IGNORED/);
   assert.deepEqual(r.authorized_actions.filter((a) => a.action === "REQUEST_REFUND").map((a) => a.payment_id), ["PAY-8004B"]);
 });
+
+test("V1 voice: spoken references, phone digits and postcodes are understood; symbols still rejected", async () => {
+  const { normaliseRef, spokenDigits } = await import("../src/service.js");
+  assert.equal(normaliseRef("order seven oh nine nine"), "ORD-7099");
+  assert.equal(normaliseRef("O R D 7 0 9 9"), "ORD-7099");
+  assert.equal(normaliseRef("payment number nine zero nine eight"), "PAY-9098");
+  assert.equal(normaliseRef("ORD-7004; DROP TABLE"), null);
+  assert.equal(spokenDigits("five six zero zero nine nine"), "560099");
+  assert.equal(spokenDigits("double seven double seven"), "7777");
+});

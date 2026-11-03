@@ -11,10 +11,30 @@ const LOCKED_MSG = "For security, I can't check this order any further right now
 const NOT_VERIFIED_MSG = "I couldn't verify those details. To look at an order I need the order or payment reference, the last 4 digits of the phone number on the account, and the delivery postcode.";
 const UNAVAILABLE_MSG = "I can't reach our order systems right now, so I can't confirm anything about this order. Nothing has been changed. Please try again shortly.";
 
+// Voice channels: speech-to-text gives "order seven oh nine nine", "O R D 7 0 9 9", "pay dash 9098".
+const DIGIT_WORDS = { ZERO: "0", OH: "0", O: "0", NIL: "0", ONE: "1", TWO: "2", TO: "2", TOO: "2", THREE: "3", FOUR: "4", FOR: "4", FIVE: "5", SIX: "6", SEVEN: "7", EIGHT: "8", ATE: "8", NINE: "9" };
+export function spokenDigits(raw) {
+  const words = up(raw).replace(/[^A-Z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+  let out = "", rep = 1;
+  for (const w of words) {
+    if (w === "DOUBLE") { rep = 2; continue; }
+    if (w === "TRIPLE") { rep = 3; continue; }
+    const d = /^\d+$/.test(w) ? w : DIGIT_WORDS[w];
+    if (d !== undefined) { out += d.repeat(d.length === 1 ? rep : 1); rep = 1; }
+  }
+  return out;
+}
 export function normaliseRef(raw) {
   const r = up(raw).replace(/\s+/g, "");
   const m = /^(ORD|PAY)-?(\d{4,6}[A-Z]?)$/.exec(r);
-  return m ? m[1] + "-" + m[2] : null;
+  if (m) return m[1] + "-" + m[2];
+  // Spoken form: detect the prefix word, then read digits from words.
+  const t = up(raw);
+  if (/[^A-Za-z0-9\s\-.,]/.test(String(raw || "")) || String(raw || "").length > 60) return null; // no symbols: blocks injection
+  const kind = /\b(PAY|PAYMENT|P\s*A\s*Y)\b/.test(t) ? "PAY" : "ORD";
+  const stripped = t.replace(/\b(ORDER|ORD|O\s*R\s*D|PAYMENT|PAY|P\s*A\s*Y|NUMBER|NO|ID|REFERENCE|REF|DASH|HYPHEN|IS|MY|THE)\b/g, " ");
+  const d = spokenDigits(stripped);
+  return /^\d{4,6}$/.test(d) ? kind + "-" + d : null;
 }
 
 export class PizzaService {
@@ -84,7 +104,15 @@ export class PizzaService {
 
   // ---------- tool 1: identity & order association ----------
   async verifyCustomer({ reference, phone_last4, postcode, requester = "self", conversation_id = "" }) {
-    const ref = normaliseRef(reference);
+    let ref = normaliseRef(reference);
+    // Voice: spoken phone digits / postcode arrive as words.
+    if (phone_last4 && !/^\d{4}$/.test(String(phone_last4).replace(/\D/g, "").slice(-4))) phone_last4 = spokenDigits(phone_last4).slice(-4);
+    else if (phone_last4 && /[A-Za-z]/.test(String(phone_last4))) phone_last4 = spokenDigits(phone_last4).slice(-4);
+    if (postcode && /[A-Za-z]/.test(String(postcode)) && spokenDigits(postcode).length === 6) postcode = spokenDigits(postcode);
+    // A bare number could be an order or a payment: if no such order exists, try the payment.
+    if (ref && ref.startsWith("ORD-") && !/^(ORD|O\s*R\s*D|ORDER)/i.test(String(reference).trim())) {
+      try { const b0 = await this.bundle(ref); if (!b0) ref = "PAY-" + ref.slice(4); } catch { /* fall through to normal path */ }
+    }
     const now = this.now();
     if (!ref) return { verified: false, decision: "INSUFFICIENT_EVIDENCE", reason_code: "INVALID_REFERENCE", customer_message: "Please give your order number (like ORD-7001) or the payment reference from your bank message (like PAY-9001)." };
     let ledger, b, customers;
