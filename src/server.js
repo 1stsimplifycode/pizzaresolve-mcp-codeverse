@@ -11,6 +11,7 @@ import { seedRows } from "./seed_data.js";
 import { loadConfig } from "./config.js";
 import { buildTelecomServer } from "./telecom/server_tools.js";
 import { portalPage, portalResult } from "./portal.js";
+import { chatPage } from "./chat_page.js";
 
 const cfg = loadConfig();
 const log = (o) => console.log(JSON.stringify({ t: new Date().toISOString(), ...o })); // no customer PII is ever passed to log()
@@ -132,6 +133,7 @@ const clientIp = (req) => String(req.headers["x-forwarded-for"] || req.socket.re
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
+  if (url.pathname === "/" || url.pathname === "/chat") { if (req.method !== "GET") { res.writeHead(405).end(); return; } res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }); res.end(chatPage()); return; }
   if (url.pathname === "/portal" || url.pathname === "/portal/login") {
     const sec = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'" };
     if (req.method === "GET") { res.writeHead(200, sec); res.end(portalPage()); return; }
@@ -142,7 +144,7 @@ const server = http.createServer(async (req, res) => {
     const r = await service.portalLogin({ login_id: f.get("login_id"), pin: f.get("pin") }).catch(() => ({ ok: false, reason: "SYSTEM_UNAVAILABLE" }));
     res.writeHead(r.ok ? 200 : 401, sec); res.end(portalResult(r)); return;
   }
-  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, server: "PizzaResolve_MCP_Codeverse", data_source: DATA_SOURCE, routes: ["/mcp (PizzaResolve)", "/portal (customer login)", "/telecom/mcp (TelecomResolve)"], tools: 10 })); return; }
+  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, server: "PizzaResolve_MCP_Codeverse", data_source: DATA_SOURCE, routes: ["/mcp (PizzaResolve)", "/chat (customer chat widget)", "/portal (customer login)", "/telecom/mcp (TelecomResolve)"], tools: 10 })); return; }
   const route = url.pathname === "/mcp" ? "pizza" : url.pathname === "/telecom/mcp" ? "telecom" : null;
   if (!route) { res.writeHead(404).end(); return; }
   if (!bearerOk(req)) { log({ http: "401", path: url.pathname }); res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "unauthorized" })); return; }
