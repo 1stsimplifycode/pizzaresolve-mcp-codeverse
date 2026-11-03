@@ -148,6 +148,10 @@ export function installCollab(Svc) {
           if (r.customer_message) r.customer_message = s(r.customer_message).replace(/ESC-[A-Z]+-[0-9A-Z]+/g, h.case_id);
           r.internal_escalation_ref = r.reference || r.escalation_id || null;
           r.case_id = h.case_id; r.reference_for_customer = h.case_id;
+          // The customer asked for a person: hand over now (the orchestrator's escalation exit routes the chat to the
+          // PizzaResolve support queue). Never leave them with "it's queued".
+          r.handoff = "TRANSFER_TO_HUMAN_QUEUE";
+          r.customer_message = "Of course. I'm handing this chat over to our human support team now, with everything we've checked, so you won't need to repeat yourself. If nobody is free right away, your case stays open and they'll reply here. Your reference is " + h.case_id + ".";
         }
         r.ai_remains_copilot = true;
       } catch { /* legacy result still valid */ }
