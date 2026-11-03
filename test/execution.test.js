@@ -109,3 +109,16 @@ test("E8 wrong item with packing proof: investigation authorises replacement, do
   assert.ok(!r.authorized_actions.some((a) => a.action === "RECORD_HUMAN_REVIEW"), JSON.stringify(r));
   assert.ok(r.findings.some((f) => f.issue === "WRONG_ITEM_VERIFIED"));
 });
+
+test("E9 refund approved earlier but not paid: investigation authorises EXECUTE_REFUND, then execution pays it once", async () => {
+  const { store, svc } = fresh();
+  const sid = await login(svc, "PAY-9098");
+  await svc.requestRefund({ session_id: sid, reference: "PAY-9098", payment_id: "PAY-9098" });
+  const r = await svc.investigateOrder({ session_id: sid, reference: "PAY-9098" });
+  assert.ok(r.authorized_actions.some((a) => a.action === "EXECUTE_REFUND"), JSON.stringify(r));
+  assert.ok(!/waiting for the refund team/.test(r.customer_message));
+  const x = await svc.executeRefund({ session_id: sid, reference: "PAY-9098" });
+  assert.equal(x.outcome, "REFUNDED", JSON.stringify(x));
+  const after = await svc.investigateOrder({ session_id: sid, reference: "PAY-9098" });
+  assert.ok(!after.authorized_actions.some((a) => a.action === "EXECUTE_REFUND"));
+});

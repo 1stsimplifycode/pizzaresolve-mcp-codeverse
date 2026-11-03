@@ -244,7 +244,7 @@ test("S10 recovery across sessions: new session sees prior request; no duplicate
   assert.equal(expired.reason_code, "SESSION_EXPIRED");
   const s2 = await login(svc, "PAY-9004B", "4821", "560085");
   const r = await svc.investigateOrder({ session_id: s2, reference: "PAY-9004B", reported_issues: ["REFUND_NOT_RECEIVED"] });
-  assert.match(r.reason_code, /REFUND_REQUEST_ON_FILE/);
+  assert.match(r.reason_code, /REFUND_APPROVED_NOT_PAID/);
   assert.equal(r.authorized_actions.filter((a) => a.action === "REQUEST_REFUND").length, 0);
   const again = await svc.requestRefund({ session_id: s2, reference: "ORD-7004", payment_id: "PAY-9004B" });
   assert.equal(again.outcome, "ALREADY_REQUESTED");

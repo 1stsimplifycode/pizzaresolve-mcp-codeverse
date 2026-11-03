@@ -154,12 +154,17 @@ export function analysePayments({ order, payments, refunds, ledger, now, payment
         say: "There is a refund record for this order, but its status is unclear, so I can't confirm it." });
     }
   }
+  const executable = [];
   const ourReqs = ledger.filter((l) => up(l.value.kind) === "REFUND_REQUEST");
   for (const l of ourReqs) {
     add(s(l.value.payment_id), int(l.value.amount_paise) || 0);
     evidence.push(ev(l.key, "PIZZARESOLVE_LEDGER", "refund request " + up(l.value.status) + " " + rupees(int(l.value.amount_paise) || 0) + " created " + s(l.value.created_at)));
-    findings.push({ issue: "REFUND_REQUEST_ON_FILE", decision: "ACTION_PENDING", ref: l.key,
-      say: "A refund request for " + rupees(int(l.value.amount_paise) || 0) + " is already on file, reference " + l.key + ". It has not been paid out yet; it is waiting for the refund team." });
+    // Our own earlier request is an approval, not a payout. If the processor has no refund for it yet, the agent completes it.
+    const paidOut = refunds.some((r) => s(r.value.payment_id) === s(l.value.payment_id) && !["FAILED", "REJECTED"].includes(up(r.value.status)));
+    if (paidOut) continue;
+    executable.push({ payment_id: s(l.value.payment_id), amount_paise: int(l.value.amount_paise) || 0, approval_ref: l.key });
+    findings.push({ issue: "REFUND_APPROVED_NOT_PAID", decision: "ACTION_REQUIRED", ref: l.key,
+      say: "A refund of " + rupees(int(l.value.amount_paise) || 0) + " was approved earlier (reference " + l.key + ") but hasn't been paid out yet. I can complete it for you right now." });
   }
 
   const refundable = [];
@@ -205,7 +210,7 @@ export function analysePayments({ order, payments, refunds, ledger, now, payment
         say: "I can't see a completed charge on this order, so no money was taken for it." });
     }
   }
-  return { findings, evidence, actions, refundable };
+  return { findings, evidence, actions, refundable, executable };
 }
 
 // ---------- delivery specialist ----------
@@ -326,6 +331,7 @@ export function reconcile({ order, payments, events, refunds, ledger, reported =
   const existingEsc = ledger.filter((l) => up(l.value.kind) === "ESCALATION");
   const existingInv = ledger.filter((l) => up(l.value.kind) === "DELIVERY_INVESTIGATION");
 
+  for (const r of pay.executable || []) authorized.push({ action: "EXECUTE_REFUND", payment_id: r.payment_id, amount_paise: r.amount_paise, approval_ref: r.approval_ref });
   for (const r of pay.refundable) authorized.push({ action: "REQUEST_REFUND", payment_id: r.payment_id, amount_paise: r.amount_paise, reason: r.reason });
   if (del.recovery.includes("REQUEST_REFUND") && order && paymentsAvailable) {
     // Overdue/stalled delivery: full refund of the (single) captured payment is permitted if nothing is already pending.
