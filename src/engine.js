@@ -253,7 +253,7 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
   // Cross-system disagreement: order system and courier system must agree on delivery.
   const statusSaysDelivered = status === "DELIVERED";
   const stageDelivered = !!packing && up(packing.stage) === "DELIVERED";
-  if (statusSaysDelivered !== (!!deliveredEv || stageDelivered) && status !== "CANCELLED") {
+  if (courier.length && statusSaysDelivered !== (!!deliveredEv || stageDelivered) && status !== "CANCELLED") {
     findings.push({ issue: "ORDER_COURIER_DISAGREE", decision: "CONFLICTING_RECORDS",
       say: statusSaysDelivered ? "The restaurant system marks this order delivered, but the courier system has no delivery record for it, so the two systems disagree and I can't treat it as delivered."
         : "The courier system recorded a delivery, but the restaurant system still shows the order as " + status.toLowerCase().replace(/_/g, " ") + ", so the two systems disagree." });
@@ -286,8 +286,10 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
       return { findings, evidence, flags, recovery: ["CREATE_REPLACEMENT"] };
     }
     if (itemsClaim) {
-      findings.push({ issue: "ITEMS_CLAIM_UNVERIFIABLE", decision: "ESCALATION_REQUIRED",
-        say: "Our systems record what was ordered (" + s(order.value.items) + ") but not what was inside the bag, so I can't verify missing or wrong items myself. This needs a person to check with the restaurant; I won't promise a refund or re-delivery before they confirm it." });
+      // Human–AI collaboration: AI prepares the replacement, a team member approves it (enforced by the gate).
+      findings.push({ issue: "ITEMS_CLAIM_NEEDS_APPROVAL", decision: "ACTION_REQUIRED",
+        say: "Our records show what was ordered (" + s(order.value.items) + ") but not what was packed, so I can't prove the mix-up on my own. I can prepare a free replacement right now and send it to a team member to approve; it goes out automatically once they do." });
+      return { findings, evidence, flags, recovery: ["CREATE_REPLACEMENT"] };
     }
     if (!regression && !itemsClaim && statusSaysDelivered && deliveredEv) findings.push({ issue: "DELIVERED", decision: "RESOLVED_VERIFIED",
       say: "The courier recorded this order as delivered at " + s(deliveredEv ? deliveredEv.value.at : order.value.promised_at) + (photo ? ", with a delivery photo." : ".") });

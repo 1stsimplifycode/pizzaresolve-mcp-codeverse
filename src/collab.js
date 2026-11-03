@@ -5,7 +5,9 @@
 //   proposal time. Only the review console (reviewer key, signed cookie) can create them; no MCP tool can.
 // - An approval triggers execution immediately through the same policy-checked operations, then re-reads the result.
 import crypto from "node:crypto";
-import { s, rupees } from "./engine.js";
+import { s, rupees, hasInjection } from "./engine.js";
+// Strip digit runs (phones, postcodes), emails and instruction-like text before anything reaches shared case state.
+const scrub = (txt, n = 300) => { const x = s(txt).replace(/\d[\d\s-]{3,}\d/g, "[digits removed]").replace(/\S+@\S+/g, "[email removed]").slice(0, n); return hasInjection(x) ? "[removed: instruction-like text]" : x; };
 
 const up = (v) => s(v).toUpperCase();
 export const TRUSTED = new WeakSet();          // contexts created by the review console after a valid approval
@@ -128,10 +130,20 @@ export function installCollab(Svc) {
     if (ctx.err) return ctx.err;
     const key = this.caseKey(ctx);
     let inv = null; try { inv = await this.evaluate(ctx, ["WANTS_HUMAN"]); } catch { /* evidence best effort */ }
-    const evidence = JSON.stringify({ customer_reason: s(reason).slice(0, 300), decision: inv && inv.decision, reason_code: inv && inv.reason_code, ai_summary: inv && s(inv.customer_message).slice(0, 700), authorized_actions: inv && inv.authorized_actions }).slice(0, 1500);
+    const evidence = JSON.stringify({ customer_reason: scrub(reason), decision: inv && inv.decision, reason_code: inv && inv.reason_code, ai_summary: inv && s(inv.customer_message).slice(0, 700), authorized_actions: inv && inv.authorized_actions }).slice(0, 1500);
     await this.saveCase(key, ctx, { fields: { status: "AWAITING_HUMAN_REVIEW", decision: "HUMAN_LED", evidence, reason: "HUMAN_LED" }, meta: { owner: "HUMAN", pending: null } }, { by: "AI", op: "HANDOFF", outcome: "WAITING_FOR_HUMAN" });
     return { action: "HANDOFF_TO_HUMAN", outcome: "QUEUED_FOR_HUMAN", case_id: key, ai_remains_copilot: true,
       customer_message: "I've passed your case to our team with everything I've already checked, so you won't have to repeat yourself. Your case reference is " + key + ". I can't promise exactly when someone will pick it up, but I'll stay on the case with them and can tell you the status any time." };
+  };
+
+  // The legacy escalation tool now also opens the shared Human–AI case, so the human gets the AI's evidence.
+  const legacyEsc = P.recordHumanReview;
+  P.recordHumanReview = async function (a) {
+    const r = await legacyEsc.call(this, a);
+    if (r && !r.err && r.decision !== "SECURITY_BLOCKED" && r.reason_code !== "NOT_VERIFIED") {
+      try { const h = await this.handoffToHuman({ session_id: a.session_id, reference: a.reference, reason: a.customer_request }); if (h.case_id) r.case_id = h.case_id; r.ai_remains_copilot = true; } catch { /* legacy result still valid */ }
+    }
+    return r;
   };
 
   // ---------- Human-side (review console only) ----------
@@ -152,7 +164,7 @@ export function installCollab(Svc) {
 
   P.humanDecision = async function ({ case_id, actor, action, op = "", note = "" }) {
     actor = s(actor).replace(/[^A-Za-z0-9 ._-]/g, "").slice(0, 40);
-    note = s(note).replace(/[<>]/g, "").slice(0, 300);
+    note = scrub(note).replace(/[<>]/g, "");
     if (!actor) return { ok: false, error: "Enter your name so the decision is attributed." };
     const row = await this.getCaseRow(case_id);
     if (!row || up(row.value.kind) !== "CASE") return { ok: false, error: "Case not found." };

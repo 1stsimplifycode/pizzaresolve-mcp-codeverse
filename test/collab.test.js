@@ -90,3 +90,11 @@ test("C7 Scenario A: low-risk proven case stays AI-led with no human step; metri
   assert.equal(m.by_mode.AI_LED, 1);
   assert.equal(m.human_touched_cases, 0);
 });
+
+test("C8 unproven wrong-item claim: investigation offers a prepared replacement for approval, not a human dump", async () => {
+  const { svc } = fresh();
+  const sid = await login(svc, "ORD-7097");
+  const r = await svc.investigateOrder({ session_id: sid, reference: "ORD-7097", reported_issues: ["WRONG_ITEMS"] });
+  assert.ok(r.authorized_actions.some((a) => a.action === "CREATE_REPLACEMENT"), JSON.stringify(r));
+  assert.ok(!r.authorized_actions.some((a) => a.action === "RECORD_HUMAN_REVIEW"), JSON.stringify(r));
+});
