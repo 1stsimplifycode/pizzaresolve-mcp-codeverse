@@ -131,7 +131,7 @@ export function installCollab(Svc) {
     const key = this.caseKey(ctx);
     let inv = null; try { inv = await this.evaluate(ctx, ["WANTS_HUMAN"]); } catch { /* evidence best effort */ }
     const evidence = JSON.stringify({ customer_reason: scrub(reason), decision: inv && inv.decision, reason_code: inv && inv.reason_code, ai_summary: inv && s(inv.customer_message).slice(0, 700), authorized_actions: inv && inv.authorized_actions }).slice(0, 1500);
-    await this.saveCase(key, ctx, { fields: { status: "AWAITING_HUMAN_REVIEW", decision: "HUMAN_LED", evidence, reason: "HUMAN_LED" }, meta: { owner: "HUMAN", pending: null } }, { by: "AI", op: "HANDOFF", outcome: "WAITING_FOR_HUMAN" });
+    await this.saveCase(key, ctx, { fields: { status: "AWAITING_HUMAN_REVIEW", decision: "HUMAN_LED", evidence, reason: "HUMAN_LED" }, meta: { owner: "HUMAN" } }, { by: "AI", op: "HANDOFF", outcome: "WAITING_FOR_HUMAN" });
     return { action: "HANDOFF_TO_HUMAN", outcome: "QUEUED_FOR_HUMAN", case_id: key, ai_remains_copilot: true,
       customer_message: "I've passed your case to our team with everything I've already checked, so you won't have to repeat yourself. Your case reference is " + key + ". I can't promise exactly when someone will pick it up, but I'll stay on the case with them and can tell you the status any time." };
   };
@@ -142,6 +142,8 @@ export function installCollab(Svc) {
     const r = await legacyEsc.call(this, a);
     if (r && !r.err && r.decision !== "SECURITY_BLOCKED" && r.reason_code !== "NOT_VERIFIED") {
       try {
+        let pendingBefore = null;
+        try { const ctx0 = await this.authorise(a.session_id, a.reference); if (!ctx0.err) { const row0 = await this.getCaseRow(this.caseKey(ctx0)); pendingBefore = row0 ? parse(row0.value.summary, {}).pending || null : null; } } catch { /* best effort */ }
         const h = await this.handoffToHuman({ session_id: a.session_id, reference: a.reference, reason: a.customer_request });
         if (h.case_id) {
           // One reference for the customer: the shared case id (the internal ESC- row is an audit detail).
@@ -150,8 +152,17 @@ export function installCollab(Svc) {
           r.case_id = h.case_id; r.reference_for_customer = h.case_id;
           // The customer asked for a person: hand over now (the orchestrator's escalation exit routes the chat to the
           // PizzaResolve support queue). Never leave them with "it's queued".
-          r.handoff = "TRANSFER_TO_HUMAN_QUEUE";
-          r.customer_message = "Of course. I'm handing this chat over to our human support team now, with everything we've checked, so you won't need to repeat yourself. If nobody is free right away, your case stays open and they'll reply here. Your reference is " + h.case_id + ".";
+          const askedForPerson = /\b(human|person|people|agent|someone|representative|manager|real|live|staff|call me|talk to|speak to)\b/i.test(s(a.customer_request));
+          const pendingOp = pendingBefore;
+          if (askedForPerson) {
+            r.handoff = "TRANSFER_TO_HUMAN_QUEUE";
+            r.customer_message = "Of course. I'm handing this chat over to our human support team now, with everything we've checked, so you won't need to repeat yourself. If nobody is free right away, your case stays open and they'll reply here. Your reference is " + h.case_id + ".";
+          } else {
+            r.handoff = "NONE_NOT_REQUESTED";
+            r.customer_message = pendingOp
+              ? "Everything we've checked is on your case " + h.case_id + ". The fix I prepared (" + s(pendingOp.op).toLowerCase() + ") is waiting for a team member's approval and runs automatically once approved. I haven't transferred you; I'm still here to help."
+              : "I've added everything we've checked to your case " + h.case_id + " so our team can review it. I haven't transferred you; I'm still here to help with anything else.";
+          }
         }
         r.ai_remains_copilot = true;
       } catch { /* legacy result still valid */ }

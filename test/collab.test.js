@@ -119,3 +119,15 @@ test("C10 customer only ever sees the CASE- reference, never the internal ESC- i
   const inv = await svc.investigateOrder({ session_id: sid, reference: "ORD-7097" });
   assert.doesNotMatch(inv.customer_message, /ESC-/, inv.customer_message);
 });
+
+test("C11 record_human_review without a request for a person does NOT claim a handover; with a request it does", async () => {
+  const { svc } = fresh();
+  const sid = await login(svc, "ORD-7097");
+  await svc.createReplacementOrder({ session_id: sid, reference: "ORD-7097" });
+  const quiet = await svc.recordHumanReview({ session_id: sid, reference: "ORD-7097", customer_request: "coupon issue" });
+  assert.equal(quiet.handoff, "NONE_NOT_REQUESTED");
+  assert.match(quiet.customer_message, /waiting for a team member's approval/);
+  assert.doesNotMatch(quiet.customer_message, /handing this chat over/);
+  const asked = await svc.recordHumanReview({ session_id: sid, reference: "ORD-7097", customer_request: "I want to talk to a real person" });
+  assert.equal(asked.handoff, "TRANSFER_TO_HUMAN_QUEUE");
+});

@@ -295,6 +295,15 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
       say: "The courier recorded this order as delivered at " + s(deliveredEv ? deliveredEv.value.at : order.value.promised_at) + (photo ? ", with a delivery photo." : ".") });
     return { findings, evidence, flags, recovery: [] };
   }
+  // A priority redelivery we already booked is the active remedy: report it (ETA is a dispatch estimate, not courier-confirmed).
+  const redispatch = evs.filter((e) => up(e.value.source) === "DISPATCH" && up(e.value.event) === "REDELIVERY_ASSIGNED").pop();
+  if (redispatch) {
+    const eta = (s(redispatch.value.detail).match(/ETA (\S+)/) || [])[1] || "";
+    evidence.push(ev(redispatch.key, "DISPATCH", "priority redelivery assigned at " + s(redispatch.value.at) + (eta ? ", estimated arrival " + eta : "")));
+    findings.push({ issue: "REDELIVERY_BOOKED", decision: "ACTION_PENDING", ref: redispatch.key,
+      say: "A priority redelivery is already booked for this order" + (eta ? ", with an estimated arrival around " + eta.slice(11, 16) + " UTC (a dispatch estimate; the courier hasn't confirmed it yet)" : "") + ". It isn't delivered yet." });
+    return { findings, evidence, flags, recovery: [], redeliveryBooked: true };
+  }
   const overdueBy = mins(now, promised);
   if (!Number.isFinite(promised)) {
     findings.push({ issue: "PROMISE_TIME_MISSING", decision: "INSUFFICIENT_EVIDENCE", say: "I can't see the promised delivery time for this order, so I can't tell whether it is late." });
@@ -333,6 +342,9 @@ export function reconcile({ order, payments, events, refunds, ledger, reported =
   const existingEsc = ledger.filter((l) => up(l.value.kind) === "ESCALATION");
   const existingInv = ledger.filter((l) => up(l.value.kind) === "DELIVERY_INVESTIGATION");
 
+  // Financial reconciliation: an active redelivery IS the remedy for lateness; don't also refund in full unless asked.
+  const moneyAsked = rep.includes("REFUND_NOT_RECEIVED") || rep.includes("ORDER_MISSING") || rep.includes("CHARGED_TWICE");
+  if (del.redeliveryBooked && !moneyAsked) { pay.executable = []; pay.refundable = pay.refundable.filter((r) => r.reason === "DUPLICATE_CHARGE" || r.reason === "GHOST_ORDER"); }
   for (const r of pay.executable || []) authorized.push({ action: "EXECUTE_REFUND", payment_id: r.payment_id, amount_paise: r.amount_paise, approval_ref: r.approval_ref });
   for (const r of pay.refundable) authorized.push({ action: "REQUEST_REFUND", payment_id: r.payment_id, amount_paise: r.amount_paise, reason: r.reason });
   if (del.recovery.includes("REQUEST_REFUND") && order && paymentsAvailable) {

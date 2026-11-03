@@ -133,3 +133,14 @@ test("E10 goal-aware: a late undelivered order offers priority redelivery FIRST,
   const d = await svc.createRedeliveryTask({ session_id: sid, reference: "ORD-7090" });
   assert.equal(d.outcome, "ASSIGNED", JSON.stringify(d));
 });
+
+test("E11 reconciliation: once a priority redelivery is booked, investigation reports it (estimate wording) and no full refund is offered on top", async () => {
+  const { svc } = fresh();
+  const sid = await login(svc, "ORD-7090");
+  await svc.requestRefund({ session_id: sid, reference: "ORD-7090", payment_id: "PAY-7090" });
+  assert.equal((await svc.createRedeliveryTask({ session_id: sid, reference: "ORD-7090" })).outcome, "ASSIGNED");
+  const r = await svc.investigateOrder({ session_id: sid, reference: "ORD-7090", reported_issues: ["LATE"] });
+  assert.ok(r.findings.some((f) => f.issue === "REDELIVERY_BOOKED"), JSON.stringify(r.findings));
+  assert.match(r.customer_message, /estimate/);
+  assert.ok(!r.authorized_actions.some((a) => a.action === "EXECUTE_REFUND" || a.action === "REQUEST_REFUND"), JSON.stringify(r.authorized_actions));
+});
