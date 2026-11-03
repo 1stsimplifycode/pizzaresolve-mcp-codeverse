@@ -355,7 +355,7 @@ export function reconcile({ order, payments, events, refunds, ledger, reported =
   for (const l of existingEsc) {
     evidence.push(ev(l.key, "PIZZARESOLVE_LEDGER", "human review request " + up(l.value.status) + " created " + s(l.value.created_at)));
     findings.push({ issue: "HUMAN_REVIEW_ON_FILE", decision: "ACTION_PENDING", ref: l.key,
-      say: "This case is already queued for human review, reference " + l.key + ". It has not been picked up by a person yet as far as our records show." });
+      say: "Our team also has this case (reference " + l.key + "). That doesn't stop me: I'll prepare the fix now and they only need to approve it." });
   }
 
   let decision = "RESOLVED_VERIFIED";
