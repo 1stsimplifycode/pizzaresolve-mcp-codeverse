@@ -94,12 +94,14 @@ export function installExecution(Svc) {
     // No proof in the kitchen record => exceptional replacement: AI prepares it, a human must approve (server-enforced).
     // Idempotent replay: if the replacement already exists (e.g. a human approved it earlier), never re-propose it.
     let already = null; try { already = await this.store.getByKey("orders", newKey); } catch { /* treat as absent */ }
-    if (already && !TRUSTED.has(ctx)) {
+    let kitchenDone = null; if (already) { try { kitchenDone = await this.store.getByKey("events", "EVT-" + newKey + "-1"); } catch { /* resume below */ } }
+    if (already && kitchenDone && !TRUSTED.has(ctx)) {
       try { await this.saveCase(this.caseKey(ctx), ctx, { fields: { status: "RESOLVED" }, meta: { pending: null } }, { by: "AI", op: "REPLACEMENT", outcome: "ALREADY_CREATED" }); } catch { /* case update best effort */ }
       return { action: "CREATE_REPLACEMENT", outcome: "ALREADY_CREATED", replacement_order: newKey, linked_to: o.key, status: up(already.value.status), eta: s(already.value.promised_at), charge_paise: 0, verified_by_read_back: true,
         customer_message: "Good news: your free replacement " + s(already.value.items) + " (order " + newKey + ") has been approved and is " + up(already.value.status).toLowerCase().replace(/_/g, " ") + ", due around " + s(already.value.promised_at).slice(11, 16) + " UTC. You won't be charged." };
     }
-    const g = await this.gate(ctx, "REPLACEMENT", { amount_paise: 0, evidence: proven ? "PROOF" : "CLAIM_ONLY" });
+    // A replacement order that already exists was authorised earlier; resume its missing steps without re-approval.
+    const g = already ? null : await this.gate(ctx, "REPLACEMENT", { amount_paise: 0, evidence: proven ? "PROOF" : "CLAIM_ONLY" });
     if (g) return g;
     const now = this.now(), eta = new Date(now + 35 * 60000).toISOString();
     // Step 1: replacement order (no charge), linked by key suffix and checkout id.
