@@ -111,6 +111,32 @@ function buildServer() {
       request_adjustment: z.string().optional().describe("'true' only after the customer agreed to the correction request") },
     async (a) => safe("check_coupon", () => service.checkCoupon(a)));
 
+  // ---------------- business execution layer: real sandbox operations with read-back verification ----------------
+  mcp.tool("execute_refund",
+    "Refund agent: EXECUTES a policy-approved refund in the sandbox payment processor and confirms it by re-reading the refund record. Blocks duplicates. Use after investigate_order shows a refund is due or a refund request is on file.",
+    { session_id: z.string(), reference: z.string(), payment_id: z.string().optional() },
+    async (a) => safe("execute_refund", () => service.executeRefund(a)));
+  mcp.tool("create_replacement_order",
+    "Order Issues agent: for a delivered order where the kitchen packed a different item than ordered, CREATES a free replacement order linked to the original plus the kitchen task, and verifies both. Resumable if a step failed.",
+    { session_id: z.string(), reference: z.string() },
+    async (a) => safe("create_replacement_order", () => service.createReplacementOrder(a)));
+  mcp.tool("create_redelivery_task",
+    "Delivery agent: for an order running more than 15 min late, BOOKS a priority redelivery in the dispatch system and updates the order ETA, then verifies it. Never claims the pizza is delivered.",
+    { session_id: z.string(), reference: z.string() },
+    async (a) => safe("create_redelivery_task", () => service.createRedeliveryTask(a)));
+  mcp.tool("apply_coupon_correction",
+    "Coupons agent: when a valid coupon was under-applied, APPLIES the correct discount to the bill and refunds the difference in the sandbox processor, verifying both. Refuses expired, below-minimum or already-refunded cases.",
+    { session_id: z.string(), reference: z.string(), coupon_code: z.string().optional() },
+    async (a) => safe("apply_coupon_correction", () => service.applyCouponCorrection(a)));
+  mcp.tool("execute_resolution",
+    "Orchestrator: runs several fixes for ONE verified order in dependency order (goals: REFUND, REPLACEMENT, REDELIVERY, COUPON, comma separated), reports what completed, what is pending and how to recover. Re-running skips finished steps.",
+    { session_id: z.string(), reference: z.string(), goals: z.string() },
+    async (a) => safe("execute_resolution", () => service.executeResolution(a)));
+  mcp.tool("verify_outcome",
+    "Any agent: re-reads the authoritative refund, replacement, delivery, address and coupon state for a verified order, to confirm what is actually done before telling the customer.",
+    { session_id: z.string(), reference: z.string() },
+    async (a) => safe("verify_outcome", () => service.verifyOutcome(a)));
+
   return mcp;
 }
 
@@ -146,7 +172,7 @@ const server = http.createServer(async (req, res) => {
     const r = await service.portalLogin({ login_id: f.get("login_id"), pin: f.get("pin") }).catch(() => ({ ok: false, reason: "SYSTEM_UNAVAILABLE" }));
     res.writeHead(r.ok ? 200 : 401, sec); res.end(portalResult(r)); return;
   }
-  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, server: "PizzaResolve_MCP_Codeverse", data_source: DATA_SOURCE, routes: ["/mcp (PizzaResolve)", "/chat (customer chat widget)", "/portal (customer login)", "/telecom/mcp (TelecomResolve)"], tools: 10 })); return; }
+  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, server: "PizzaResolve_MCP_Codeverse", data_source: DATA_SOURCE, routes: ["/mcp (PizzaResolve)", "/chat (customer chat widget)", "/portal (customer login)", "/telecom/mcp (TelecomResolve)"], tools: 16 })); return; }
   const route = url.pathname === "/mcp" ? "pizza" : url.pathname === "/telecom/mcp" ? "telecom" : null;
   if (!route) { res.writeHead(404).end(); return; }
   if (!bearerOk(req)) { log({ http: "401", path: url.pathname }); res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "unauthorized" })); return; }
