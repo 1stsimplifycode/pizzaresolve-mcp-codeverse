@@ -9,13 +9,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { TalkdeskStore } from "./store.js";
-import { seedRows, COLUMNS, TABLE_NAMES } from "./seed_data.js";
+import * as pizza from "./seed_data.js";
+import * as telecom from "./telecom/seed_data.js";
 import { loadConfig } from "./config.js";
 
 const REFERENCE_TABLE = "6ae61ca0134c9b1ff90d84ac"; // CRM_Codeverse (team CodeVerse), used only to copy schema shape + team id
 const here = path.dirname(fileURLToPath(import.meta.url));
-const tablesFile = path.join(here, "..", "tables.json");
 const args = new Set(process.argv.slice(2));
+// --telecom selects the TelecomResolve tables (TC_*_Codeverse, ids in tables_telecom.json)
+const T = args.has("--telecom");
+const { COLUMNS, TABLE_NAMES } = T ? telecom : pizza;
+const seedRows = T ? telecom.telecomSeedRows : pizza.seedRows;
+const tablesFile = path.join(here, "..", T ? "tables_telecom.json" : "tables.json");
 process.env.PZ_STORE = "memory"; // loadConfig must not demand a bearer token for seeding
 const cfg = loadConfig().talkdesk; // loads .env and oauthclient.json into process.env
 cfg.clientId = process.env.TD_CLIENT_ID; cfg.clientSecret = process.env.TD_CLIENT_SECRET;
@@ -44,7 +49,7 @@ const ids = { ...td.o.tableIds };
 if (args.has("--create")) {
   for (const [logical, name] of Object.entries(TABLE_NAMES)) {
     if (ids[logical]) { console.log("exists", logical, ids[logical]); continue; }
-    const body = { name, description: "PizzaResolve synthetic system of record (" + logical + "). Team CodeVerse. No real customer data.", team_ids: teamIds, columns: ["key", ...COLUMNS[logical]].map(mkCol) };
+    const body = { name, description: (T ? "TelecomResolve (fictional operator CodeVerse Telecom)" : "PizzaResolve") + " synthetic system of record (" + logical + "). Team CodeVerse. No real customer data.", team_ids: teamIds, columns: ["key", ...COLUMNS[logical]].map(mkCol) };
     const r = await api("POST", "/data-tables", body);
     if (r.status === 201 || r.status === 200) { ids[logical] = r.body.id; console.log("created", name, r.body.id); fs.writeFileSync(tablesFile, JSON.stringify(ids, null, 2)); }
     else { console.error("create failed", name, r.status, JSON.stringify(r.body).slice(0, 400)); process.exit(1); }
@@ -63,7 +68,7 @@ if (args.has("--rows")) {
   }
 }
 if (args.has("--refresh-times")) {
-  for (const logical of ["orders", "payments", "events", "refunds"]) {
+  for (const logical of T ? ["subscribers", "recharges", "services", "network", "refunds"] : ["orders", "payments", "events", "refunds"]) {
     const live = await td.list(logical);
     for (const r of rows[logical]) {
       const cur = live.find((x) => x.key === r.key);

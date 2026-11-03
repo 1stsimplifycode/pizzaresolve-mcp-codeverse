@@ -22,6 +22,6 @@ $tunnel = Start-Process $cloudflared -ArgumentList "tunnel --no-autoupdate --url
 $url = $null
 for ($i = 0; $i -lt 30 -and -not $url; $i++) { Start-Sleep 1; $m = Select-String -Path $tunnelLog -Pattern "https://[a-z0-9-]+\.trycloudflare\.com" -ErrorAction SilentlyContinue | Select-Object -First 1; if ($m) { $url = $m.Matches[0].Value } }
 Write-Host "PUBLIC MCP URL: $url/mcp"
-Write-Host "Registered in Talkdesk (PizzaResolve_MCP_Codeverse): https://humanitarian-camel-express-handbags.trycloudflare.com/mcp"
+Write-Host "Registered in Talkdesk (PizzaResolve_MCP_Codeverse): https://efficiently-potter-synthesis-jack.trycloudflare.com/mcp"
 Write-Host "If these differ, edit the MCP server URL in Talkdesk (AI Agent Platform > MCP Servers) and re-paste the bearer token from .env, then Test connection."
 Write-Host "Server PID $($server.Id), tunnel PID $($tunnel.Id). Stop with: Stop-Process -Id $($server.Id),$($tunnel.Id)"

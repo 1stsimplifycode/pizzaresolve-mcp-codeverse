@@ -9,6 +9,7 @@ import { PizzaService } from "./service.js";
 import { TalkdeskStore, MemoryStore } from "./store.js";
 import { seedRows } from "./seed_data.js";
 import { loadConfig } from "./config.js";
+import { buildTelecomServer } from "./telecom/server_tools.js";
 
 const cfg = loadConfig();
 const log = (o) => console.log(JSON.stringify({ t: new Date().toISOString(), ...o })); // no customer PII is ever passed to log()
@@ -80,16 +81,17 @@ function bearerOk(req) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
-  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, server: "PizzaResolve_MCP_Codeverse", data_source: DATA_SOURCE })); return; }
-  if (url.pathname !== "/mcp") { res.writeHead(404).end(); return; }
+  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, server: "PizzaResolve_MCP_Codeverse", data_source: DATA_SOURCE, routes: ["/mcp (PizzaResolve)", "/telecom/mcp (TelecomResolve)"] })); return; }
+  const route = url.pathname === "/mcp" ? "pizza" : url.pathname === "/telecom/mcp" ? "telecom" : null;
+  if (!route) { res.writeHead(404).end(); return; }
   if (!bearerOk(req)) { log({ http: "401", path: url.pathname }); res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "unauthorized" })); return; }
   if (req.method !== "POST") { res.writeHead(405, { allow: "POST" }).end(); return; }
   let body = "";
   for await (const c of req) { body += c; if (body.length > 256 * 1024) { res.writeHead(413).end(); return; } }
   let parsed; try { parsed = JSON.parse(body); } catch { res.writeHead(400).end(); return; }
   // Audit trace of every authenticated MCP request (method + tool name only; never arguments).
-  for (const m of Array.isArray(parsed) ? parsed : [parsed]) log({ rpc: m && m.method, tool: m && m.params && m.params.name, ua: String(req.headers["user-agent"] || "").slice(0, 60) });
-  const mcp = buildServer();
+  for (const m of Array.isArray(parsed) ? parsed : [parsed]) log({ route, rpc: m && m.method, tool: m && m.params && m.params.name, ua: String(req.headers["user-agent"] || "").slice(0, 60) });
+  const mcp = route === "telecom" ? buildTelecomServer({ cfg, log }) : buildServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on("close", () => { transport.close(); mcp.close(); });
   try {

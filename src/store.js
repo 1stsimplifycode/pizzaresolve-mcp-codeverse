@@ -17,7 +17,7 @@ export class MemoryStore {
   constructor(seed = {}) {
     this.t = {};
     for (const name of TABLES) this.t[name] = new Map();
-    for (const [name, rows] of Object.entries(seed)) for (const r of rows) this.t[name].set(r.key, { id: "mem-" + r.key, key: r.key, value: { ...r.value } });
+    for (const [name, rows] of Object.entries(seed)) { this.t[name] ||= new Map(); for (const r of rows) this.t[name].set(r.key, { id: "mem-" + r.key, key: r.key, value: { ...r.value } }); }
     this.faults = {};        // table -> "UNAVAILABLE" | "TIMEOUT_AFTER_WRITE" | "TIMEOUT_BEFORE_WRITE"
     this.calls = [];
   }
