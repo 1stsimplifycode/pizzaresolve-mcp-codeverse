@@ -98,3 +98,14 @@ test("C8 unproven wrong-item claim: investigation offers a prepared replacement 
   assert.ok(r.authorized_actions.some((a) => a.action === "CREATE_REPLACEMENT"), JSON.stringify(r));
   assert.ok(!r.authorized_actions.some((a) => a.action === "RECORD_HUMAN_REVIEW"), JSON.stringify(r));
 });
+
+test("C9 after human approval, the customer's next request returns ALREADY_CREATED and the case stays RESOLVED (no re-proposal)", async () => {
+  const { store, svc } = fresh();
+  const sid = await login(svc, "ORD-7097");
+  await svc.createReplacementOrder({ session_id: sid, reference: "ORD-7097" });
+  await svc.humanDecision({ case_id: "CASE-ORD-7097", actor: "Adishree", action: "APPROVE" });
+  const again = await svc.createReplacementOrder({ session_id: sid, reference: "ORD-7097" });
+  assert.equal(again.outcome, "ALREADY_CREATED", JSON.stringify(again));
+  assert.equal((await svc.getCase({ session_id: sid, reference: "ORD-7097" })).status, "RESOLVED");
+  assert.equal([...store.t.orders.keys()].filter((k) => k === "ORD-7097R").length, 1);
+});

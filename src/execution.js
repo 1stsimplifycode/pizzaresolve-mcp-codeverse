@@ -92,6 +92,13 @@ export function installExecution(Svc) {
     const rs = up(d ? d.value.remedy_status : "");
     if (rs && rs !== "NONE" && !rs.includes(newKey)) return { action: "CREATE_REPLACEMENT", outcome: "ALREADY_REMEDIED", duplicate_prevented: true, reason_code: "OTHER_REMEDY_ON_FILE", customer_message: "A remedy is already on file for this order (" + rs.toLowerCase() + "), so I won't add a second one." };
     // No proof in the kitchen record => exceptional replacement: AI prepares it, a human must approve (server-enforced).
+    // Idempotent replay: if the replacement already exists (e.g. a human approved it earlier), never re-propose it.
+    let already = null; try { already = await this.store.getByKey("orders", newKey); } catch { /* treat as absent */ }
+    if (already && !TRUSTED.has(ctx)) {
+      try { await this.saveCase(this.caseKey(ctx), ctx, { fields: { status: "RESOLVED" }, meta: { pending: null } }, { by: "AI", op: "REPLACEMENT", outcome: "ALREADY_CREATED" }); } catch { /* case update best effort */ }
+      return { action: "CREATE_REPLACEMENT", outcome: "ALREADY_CREATED", replacement_order: newKey, linked_to: o.key, status: up(already.value.status), eta: s(already.value.promised_at), charge_paise: 0, verified_by_read_back: true,
+        customer_message: "Good news: your free replacement " + s(already.value.items) + " (order " + newKey + ") has been approved and is " + up(already.value.status).toLowerCase().replace(/_/g, " ") + ", due around " + s(already.value.promised_at).slice(11, 16) + " UTC. You won't be charged." };
+    }
     const g = await this.gate(ctx, "REPLACEMENT", { amount_paise: 0, evidence: proven ? "PROOF" : "CLAIM_ONLY" });
     if (g) return g;
     const now = this.now(), eta = new Date(now + 35 * 60000).toISOString();
