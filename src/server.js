@@ -11,6 +11,7 @@ import { seedRows } from "./seed_data.js";
 import { loadConfig } from "./config.js";
 import { buildTelecomServer } from "./telecom/server_tools.js";
 import { portalPage, portalResult } from "./portal.js";
+import { loginPage, consolePage, makeCookie, readCookie, keyOk } from "./review.js";
 import { chatPage } from "./chat_page.js";
 
 const cfg = loadConfig();
@@ -132,6 +133,14 @@ function buildServer() {
     "Orchestrator: runs several fixes for ONE verified order in dependency order (goals: REFUND, REPLACEMENT, REDELIVERY, COUPON, comma separated), reports what completed, what is pending and how to recover. Re-running skips finished steps.",
     { session_id: z.string(), reference: z.string(), goals: z.string() },
     async (a) => safe("execute_resolution", () => service.executeResolution(a)));
+  mcp.tool("get_case",
+    "Any agent: reads the shared Human-AI case for a verified order: status, owner (AI or a named team member), pending proposal, the human's notes and decisions, and history. Call it when the customer comes back, asks for status, or after a human returned the case to AI, so you continue without asking again.",
+    { session_id: z.string(), reference: z.string() },
+    async (a) => safe("get_case", () => service.getCase(a)));
+  mcp.tool("handoff_to_human",
+    "Human_Escalation agent: hands a verified case to a team member WITH the AI's investigation attached (human-led mode). Use only when the customer asks for a person or a tool result says a human must decide. You stay on the case as copilot.",
+    { session_id: z.string(), reference: z.string(), reason: z.string().optional() },
+    async (a) => safe("handoff_to_human", () => service.handoffToHuman(a)));
   mcp.tool("verify_outcome",
     "Any agent: re-reads the authoritative refund, replacement, delivery, address and coupon state for a verified order, to confirm what is actually done before telling the customer.",
     { session_id: z.string(), reference: z.string() },
@@ -172,7 +181,34 @@ const server = http.createServer(async (req, res) => {
     const r = await service.portalLogin({ login_id: f.get("login_id"), pin: f.get("pin") }).catch(() => ({ ok: false, reason: "SYSTEM_UNAVAILABLE" }));
     res.writeHead(r.ok ? 200 : 401, sec); res.end(portalResult(r)); return;
   }
-  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, server: "PizzaResolve_MCP_Codeverse", data_source: DATA_SOURCE, routes: ["/mcp (PizzaResolve)", "/chat (customer chat widget)", "/portal (customer login)", "/telecom/mcp (TelecomResolve)"], tools: 16 })); return; }
+  if (url.pathname === "/review" || url.pathname.startsWith("/review/")) {
+    const sec = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "SAMEORIGIN", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'self' https://*.mytalkdesk.com https://*.talkdesk.com" };
+    const send = (code, html, extra = {}) => { res.writeHead(code, { ...sec, ...extra }); res.end(html); };
+    if (req.method === "POST") {
+      const origin = String(req.headers.origin || "");
+      if (origin && origin !== "https://" + req.headers.host && origin !== "http://" + req.headers.host) { send(403, loginPage("Blocked: cross-site request.")); return; }
+      if (rateLimited("review:" + clientIp(req), 30, 60000)) { send(429, loginPage("Too many requests, wait a minute.")); return; }
+    }
+    let form = null;
+    if (req.method === "POST") { let body = ""; for await (const c of req) { body += c; if (body.length > 4096) { res.writeHead(413).end(); return; } } form = new URLSearchParams(body); }
+    if (url.pathname === "/review/login" && form) {
+      const actor = String(form.get("actor") || "").replace(/[^A-Za-z0-9 ._-]/g, "").slice(0, 40);
+      if (!actor || !keyOk(form.get("key"))) { log({ review: "login_failed" }); send(401, loginPage("Wrong reviewer key.")); return; }
+      log({ review: "login", actor }); res.writeHead(303, { location: "/review", "set-cookie": makeCookie(actor) }).end(); return;
+    }
+    const actor = readCookie(req);
+    if (!actor) { send(200, loginPage()); return; }
+    let msg = "";
+    if (url.pathname === "/review/decide" && form) {
+      const r = await service.humanDecision({ case_id: String(form.get("case_id") || ""), actor, action: String(form.get("action") || ""), op: String(form.get("op") || ""), note: String(form.get("note") || "") }).catch((e) => ({ ok: false, error: "System error: " + e.message }));
+      log({ review: "decision", actor, case: form.get("case_id"), action: form.get("action"), ok: r.ok, outcome: r.outcome });
+      msg = r.error || r.message || (r.ok ? "Done." : "Not done.");
+      if (r.executed) msg = "Executed " + (r.outcome || "") + ": " + (r.message || "");
+    }
+    const [cases, metrics] = await Promise.all([service.openCases(), service.collabMetrics()]).catch(() => [[], {}]);
+    send(200, consolePage(actor, cases, metrics, msg)); return;
+  }
+  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, server: "PizzaResolve_MCP_Codeverse", data_source: DATA_SOURCE, routes: ["/mcp (PizzaResolve)", "/chat (customer chat widget)", "/portal (customer login)", "/review (human review console)", "/telecom/mcp (TelecomResolve)"], tools: 18 })); return; }
   const route = url.pathname === "/mcp" ? "pizza" : url.pathname === "/telecom/mcp" ? "telecom" : null;
   if (!route) { res.writeHead(404).end(); return; }
   if (!bearerOk(req)) { log({ http: "401", path: url.pathname }); res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "unauthorized" })); return; }

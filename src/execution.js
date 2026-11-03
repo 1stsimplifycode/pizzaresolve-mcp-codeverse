@@ -5,6 +5,7 @@
 import crypto from "node:crypto";
 import { s, rupees } from "./engine.js";
 import { analyseCoupon } from "./domains.js";
+import { TRUSTED } from "./collab.js";
 
 const up = (v) => s(v).toUpperCase();
 const sbxRef = (prefix, seed) => prefix + "-" + crypto.createHash("sha256").update(seed).digest("hex").slice(0, 10).toUpperCase();
@@ -37,8 +38,8 @@ export function installExecution(Svc) {
   };
 
   // ---------- Refund agent: execute a sandbox refund (not just a request) ----------
-  P.executeRefund = async function ({ session_id, reference, payment_id = "" }) {
-    const ctx = await this.authorise(session_id, reference);
+  P.executeRefund = async function ({ _ctx, session_id, reference, payment_id = "" }) {
+    const ctx = _ctx && TRUSTED.has(_ctx) ? _ctx : await this.authorise(session_id, reference);
     if (ctx.err) return ctx.err;
     const r = await this.evaluate(ctx, []);
     const allowed = r.authorized_actions.filter((a) => a.action === "REQUEST_REFUND");
@@ -62,6 +63,8 @@ export function installExecution(Svc) {
       return { action: "EXECUTE_REFUND", outcome: "ALREADY_REFUNDED", duplicate_prevented: true, refund_id: x.key, status: up(x.value.status), amount_paise: Number(x.value.amount_paise), processor_ref: s(x.value.processor_ref),
         customer_message: "This payment has already been refunded: " + rupees(Number(x.value.amount_paise)) + ", refund " + x.key + " (status " + up(x.value.status).toLowerCase() + "). I haven't refunded it twice." };
     }
+    const g = await this.gate(ctx, "REFUND", { amount_paise: amount, payment_id: pid, evidence: "PROOF" });
+    if (g) return g;
     const key = "RF-SBX-" + pid;
     const txn = sbxRef("SBXTXN", key);
     const w = await this.commitRow("refunds", key, { order_id: ctx.b.order ? ctx.b.order.key : "", payment_id: pid, status: "SETTLED", amount_paise: String(amount), at: this.iso(), processor_ref: txn });
@@ -76,29 +79,31 @@ export function installExecution(Svc) {
   };
 
   // ---------- Order Issues agent: create a linked replacement order + kitchen task ----------
-  P.createReplacementOrder = async function ({ session_id, reference }) {
-    const ctx = await this.authorise(session_id, reference);
+  P.createReplacementOrder = async function ({ _ctx, session_id, reference }) {
+    const ctx = _ctx && TRUSTED.has(_ctx) ? _ctx : await this.authorise(session_id, reference);
     if (ctx.err) return ctx.err;
     const o = ctx.b.order;
     if (!o) return { action: "CREATE_REPLACEMENT", outcome: "NOT_AUTHORIZED", reason_code: "NO_ORDER", customer_message: "There's no order for this reference, so there's nothing to replace." };
     const d = (await this.store.list("details")).find((x) => x.key === o.key);
-    if (!d) return { action: "CREATE_REPLACEMENT", outcome: "INSUFFICIENT_EVIDENCE", reason_code: "NO_PACKING_RECORD", customer_message: "I can't see the kitchen's packing record for this order, so I can't confirm a wrong item. Nothing has been changed." };
-    const ordered = s(d.value.ordered_items || d.value.line_items), packed = s(d.value.packed_items);
-    if (up(d.value.stage || o.value.status) !== "DELIVERED") return { action: "CREATE_REPLACEMENT", outcome: "NOT_ELIGIBLE", reason_code: "NOT_DELIVERED_YET", customer_message: "This order hasn't been delivered yet, so a replacement isn't needed. Let me know once it arrives if anything is wrong." };
-    if (!packed || norm(ordered) === norm(packed)) return { action: "CREATE_REPLACEMENT", outcome: "NOT_ELIGIBLE", reason_code: "PACKING_MATCHES_ORDER", customer_message: "The kitchen's packing record matches what you ordered, so I can't confirm a wrong item automatically." };
+    const ordered = d ? s(d.value.ordered_items || d.value.line_items) : s(o.value.items), packed = d ? s(d.value.packed_items) : "";
+    if (up((d && d.value.stage) || o.value.status) !== "DELIVERED") return { action: "CREATE_REPLACEMENT", outcome: "NOT_ELIGIBLE", reason_code: "NOT_DELIVERED_YET", customer_message: "This order hasn't been delivered yet, so a replacement isn't needed. Let me know once it arrives if anything is wrong." };
+    const proven = !!packed && norm(ordered) !== norm(packed);
     const newKey = o.key + "R";
-    const rs = up(d.value.remedy_status);
+    const rs = up(d ? d.value.remedy_status : "");
     if (rs && rs !== "NONE" && !rs.includes(newKey)) return { action: "CREATE_REPLACEMENT", outcome: "ALREADY_REMEDIED", duplicate_prevented: true, reason_code: "OTHER_REMEDY_ON_FILE", customer_message: "A remedy is already on file for this order (" + rs.toLowerCase() + "), so I won't add a second one." };
+    // No proof in the kitchen record => exceptional replacement: AI prepares it, a human must approve (server-enforced).
+    const g = await this.gate(ctx, "REPLACEMENT", { amount_paise: 0, evidence: proven ? "PROOF" : "CLAIM_ONLY" });
+    if (g) return g;
     const now = this.now(), eta = new Date(now + 35 * 60000).toISOString();
     // Step 1: replacement order (no charge), linked by key suffix and checkout id.
     const w1 = await this.commitRow("orders", newKey, { customer_id: s(o.value.customer_id), checkout_id: s(o.value.checkout_id), status: "PREPARING", total_paise: "0", items: ordered, placed_at: new Date(now).toISOString(), promised_at: eta, version: "1" });
     if (!w1.verified) return { action: "CREATE_REPLACEMENT", outcome: "FAILED", step_failed: "CREATE_ORDER", customer_message: "I couldn't create the replacement order in the restaurant system, so nothing has been changed. Please try again; it's safe to retry." };
     // Step 2: order details for the replacement.
-    const w2 = await this.commitRow("details", newKey, { customer_id: s(o.value.customer_id), ordered_items: ordered, packed_items: "", address_line: s(d.value.address_line), postcode: s(d.value.postcode), stage: "PREPARING", coupon_code: "", subtotal_paise: "0", discount_paise: "0", address_version: "1", remedy_status: "REPLACEMENT_FOR:" + o.key });
+    const w2 = await this.commitRow("details", newKey, { customer_id: s(o.value.customer_id), ordered_items: ordered, packed_items: "", address_line: d ? s(d.value.address_line) : "", postcode: d ? s(d.value.postcode) : "", stage: "PREPARING", coupon_code: "", subtotal_paise: "0", discount_paise: "0", address_version: "1", remedy_status: "REPLACEMENT_FOR:" + o.key });
     // Step 3: kitchen fulfilment task (dependent on step 1). One retry, then report partial state truthfully.
     let w3 = await this.commitRow("events", "EVT-" + newKey + "-1", { order_id: newKey, source: "KITCHEN", event: "ACCEPTED", at: new Date(now).toISOString(), detail: "Free replacement for " + o.key + " (wrong item)", courier_id: "", distance_m: "" });
     if (!w3.verified) w3 = await this.commitRow("events", "EVT-" + newKey + "-1", { order_id: newKey, source: "KITCHEN", event: "ACCEPTED", at: new Date(now).toISOString(), detail: "Free replacement for " + o.key + " (wrong item)", courier_id: "", distance_m: "" });
-    const link = await this.patchRow("details", o.key, { remedy_status: "REPLACED:" + newKey });
+    const link = d ? await this.patchRow("details", o.key, { remedy_status: "REPLACED:" + newKey }) : { verified: false };
     this.log({ tool: "create_replacement_order", ref: ctx.ref, newKey, order: w1.outcome, task: w3.outcome });
     await this.audit("EXEC-REPL-" + o.key, { kind: "EXECUTED_REPLACEMENT", status: w3.verified ? "KITCHEN_ACCEPTED" : "PARTIAL_NO_KITCHEN_TASK", ref: ctx.ref, order_id: o.key, customer_id: ctx.sess.customer_id, amount_paise: "0", reason: newKey, summary: "ordered " + ordered + "; packed " + packed, session: ctx.sess.id });
     if (!w3.verified) return { action: "CREATE_REPLACEMENT", outcome: "PARTIAL", replacement_order: newKey, kitchen_task: "NOT_CONFIRMED", recovery: "Call create_replacement_order again; it resumes from the missing step without creating a second order.",
@@ -109,8 +114,8 @@ export function installExecution(Svc) {
   };
 
   // ---------- Delivery agent: priority redelivery task + new ETA ----------
-  P.createRedeliveryTask = async function ({ session_id, reference }) {
-    const ctx = await this.authorise(session_id, reference);
+  P.createRedeliveryTask = async function ({ _ctx, session_id, reference }) {
+    const ctx = _ctx && TRUSTED.has(_ctx) ? _ctx : await this.authorise(session_id, reference);
     if (ctx.err) return ctx.err;
     const o = ctx.b.order;
     if (!o) return { action: "CREATE_REDELIVERY", outcome: "NOT_AUTHORIZED", reason_code: "NO_ORDER", customer_message: "There's no order for this reference, so there's no delivery to fix." };
@@ -118,6 +123,8 @@ export function installExecution(Svc) {
     if (["DELIVERED", "CANCELLED"].includes(st)) return { action: "CREATE_REDELIVERY", outcome: "NOT_ELIGIBLE", reason_code: "ORDER_" + st, customer_message: "This order is marked " + st.toLowerCase() + ", so I can't send it out again automatically." };
     const late = (this.now() - Date.parse(o.value.promised_at)) / 60000;
     if (!(late > 15)) return { action: "CREATE_REDELIVERY", outcome: "NOT_ELIGIBLE", reason_code: "NOT_LATE_YET", customer_message: "Your order is still within its delivery time, so it's on track. I'll be able to step in if it runs more than 15 minutes late." };
+    const g = await this.gate(ctx, "REDELIVERY", { amount_paise: 0, evidence: "PROOF" });
+    if (g) return g;
     const key = "EVT-" + o.key + "-REDISPATCH";
     const eta = new Date(this.now() + 30 * 60000).toISOString();
     const w = await this.commitRow("events", key, { order_id: o.key, source: "DISPATCH", event: "REDELIVERY_ASSIGNED", at: this.iso(), detail: "Priority redelivery from store, new ETA " + eta, courier_id: "RID-SBX-PRIORITY", distance_m: "" });
@@ -131,8 +138,8 @@ export function installExecution(Svc) {
   };
 
   // ---------- Coupon agent: apply the correct discount and refund the difference ----------
-  P.applyCouponCorrection = async function ({ session_id, reference, coupon_code = "" }) {
-    const ctx = await this.authorise(session_id, reference);
+  P.applyCouponCorrection = async function ({ _ctx, session_id, reference, coupon_code = "" }) {
+    const ctx = _ctx && TRUSTED.has(_ctx) ? _ctx : await this.authorise(session_id, reference);
     if (ctx.err) return ctx.err;
     const [d, promotions, orders] = await Promise.all([this.domainBundle(ctx), this.store.list("promotions"), this.store.list("orders")]);
     const r = analyseCoupon({ order: ctx.b.order, details: d.details, promotions, code: coupon_code, customerOrders: orders.filter((o) => s(o.value.customer_id) === ctx.sess.customer_id), ledger: d.related, refunds: d.refunds });
@@ -140,6 +147,8 @@ export function installExecution(Svc) {
     if (!act) return { action: "APPLY_COUPON_CORRECTION", outcome: "NOT_APPLIED", decision: r.decision, reason_code: r.reason_code, money_moved: false, customer_message: r.customer_message };
     const o = ctx.b.order, pay = ctx.b.payments.find((p) => ["CAPTURED", "SETTLED"].includes(up(p.value.status)));
     const expected = Number(r.bill.discount_expected_paise);
+    const g = await this.gate(ctx, "COUPON", { amount_paise: Number(act.amount_paise), evidence: "PROOF" });
+    if (g) return g;
     const upd = await this.patchRow("details", o.key, { discount_paise: String(expected), remedy_status: "COUPON_CORRECTED:" + act.coupon });
     if (!upd.verified) return { action: "APPLY_COUPON_CORRECTION", outcome: "FAILED", step_failed: "UPDATE_BILL", money_moved: false, customer_message: "I couldn't update the bill in the order system, so I haven't changed anything. Please try again." };
     const key = "RF-CPN-" + o.key;

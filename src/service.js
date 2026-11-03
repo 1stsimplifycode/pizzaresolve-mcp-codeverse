@@ -5,6 +5,7 @@ import { reconcile, checkIdentity, countRecentFailures, POLICY, rupees, s, hasIn
 import { StoreUnavailable, UnknownOutcome } from "./store.js";
 import { installMultiAgent } from "./multiagent.js";
 import { installExecution } from "./execution.js";
+import { installCollab } from "./collab.js";
 
 const up = (v) => s(v).toUpperCase();
 const mins = (a, b) => (a - b) / 60000;
@@ -315,6 +316,7 @@ export class PizzaService {
 
 installMultiAgent(PizzaService);
 installExecution(PizzaService);
+installCollab(PizzaService);
 
 function base32(buf) {
   const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
