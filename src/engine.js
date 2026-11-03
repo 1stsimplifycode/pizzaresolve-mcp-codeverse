@@ -315,7 +315,7 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
       : "the courier hasn't reported any progress since " + up(lastCourier.value.event).toLowerCase().replace(/_/g, " ") + " " + Math.round(sinceCourier) + " minutes ago";
     findings.push({ issue: !kAccepted ? "KITCHEN_NOT_CONFIRMED" : "DELIVERY_STALLED", decision: "ACTION_REQUIRED", overdue_min: Math.round(overdueBy),
       say: "Your order is " + Math.round(overdueBy) + " minutes past its promised time and " + where + ". I can't see where it is, so I won't guess." });
-    return { findings, evidence, flags, recovery: ["OPEN_DELIVERY_INVESTIGATION", "REQUEST_REFUND"] };
+    return { findings, evidence, flags, recovery: ["CREATE_REDELIVERY", "OPEN_DELIVERY_INVESTIGATION", "REQUEST_REFUND"] };
   }
   findings.push({ issue: "DELIVERY_LATE_MOVING", decision: "ACTION_PENDING", overdue_min: Math.round(overdueBy),
     say: "Your order is " + Math.round(overdueBy) + " minutes late, but the courier reported '" + up(lastCourier.value.event).toLowerCase().replace(/_/g, " ") + "' " + Math.round(sinceCourier) + " minutes ago, so it is still moving." });
@@ -345,6 +345,8 @@ export function reconcile({ order, payments, events, refunds, ledger, reported =
       if (!pending) authorized.push({ action: "REQUEST_REFUND", payment_id: first.key, amount_paise: int(first.value.amount_paise), reason: "DELIVERY_STALLED" });
     }
   }
+  // Goal-aware ordering: a late, undelivered order is fixed by getting the food there; money back stays an option.
+  if (del.recovery.includes("CREATE_REDELIVERY") && order && !rep.includes("REFUND_NOT_RECEIVED") && !rep.includes("ORDER_MISSING")) authorized.unshift({ action: "CREATE_REDELIVERY", order_id: order.key, preferred: true });
   if (del.recovery.includes("CREATE_REPLACEMENT")) authorized.push({ action: "CREATE_REPLACEMENT", order_id: order.key });
   if (del.recovery.includes("OPEN_DELIVERY_INVESTIGATION") && !existingInv.length) authorized.push({ action: "OPEN_DELIVERY_INVESTIGATION", order_id: order.key });
   for (const l of existingInv) {
@@ -373,6 +375,7 @@ export function reconcile({ order, payments, events, refunds, ledger, reported =
     const amt = authorized.filter((a) => a.action === "REQUEST_REFUND").reduce((x, a) => x + a.amount_paise, 0);
     offer.push("I can raise a refund request for " + rupees(amt) + " now");
   }
+  if (authorized.some((a) => a.action === "CREATE_REDELIVERY")) offer.unshift("I can book a priority redelivery right now (or, if you'd rather have your money back instead, I can do that)");
   if (authorized.some((a) => a.action === "OPEN_DELIVERY_INVESTIGATION")) offer.push("I can open a delivery investigation");
   if (authorized.some((a) => a.action === "RECORD_HUMAN_REVIEW")) offer.push("I can record this for review by a person (I can't transfer you live from this chat)");
   if (offer.length) message += " " + offer.join(", and ") + ". Would you like me to?";

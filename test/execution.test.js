@@ -122,3 +122,14 @@ test("E9 refund approved earlier but not paid: investigation authorises EXECUTE_
   const after = await svc.investigateOrder({ session_id: sid, reference: "PAY-9098" });
   assert.ok(!after.authorized_actions.some((a) => a.action === "EXECUTE_REFUND"));
 });
+
+test("E10 goal-aware: a late undelivered order offers priority redelivery FIRST, refund only as an alternative", async () => {
+  const { svc } = fresh();
+  const sid = await login(svc, "ORD-7090");
+  await svc.requestRefund({ session_id: sid, reference: "ORD-7090", payment_id: "PAY-7090" });
+  const r = await svc.investigateOrder({ session_id: sid, reference: "ORD-7090", reported_issues: ["LATE"] });
+  assert.equal(r.authorized_actions[0].action, "CREATE_REDELIVERY", JSON.stringify(r.authorized_actions));
+  assert.match(r.customer_message, /priority redelivery/);
+  const d = await svc.createRedeliveryTask({ session_id: sid, reference: "ORD-7090" });
+  assert.equal(d.outcome, "ASSIGNED", JSON.stringify(d));
+});
