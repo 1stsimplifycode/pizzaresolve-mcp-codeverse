@@ -42,7 +42,7 @@ async function safeA(a, tool, fn) {
   return safe(tool, async () => {
     const r = await fn();
     const g = a && a.session_id && typeof service.takeResumeGreeting === "function" ? service.takeResumeGreeting(a.session_id) : "";
-    if (g && r && typeof r === "object" && r.customer_message && !String(r.customer_message).includes("I remember")) r.customer_message = g + " " + r.customer_message;
+    if (g && r && typeof r === "object" && r.customer_message && !String(r.customer_message).includes("I spoke to you")) r.customer_message = g + " " + r.customer_message;
     return r;
   });
 }

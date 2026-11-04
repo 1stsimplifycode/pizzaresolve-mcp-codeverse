@@ -122,7 +122,7 @@ export function installResume(Svc) {
     const others = items.filter((i) => !lastConv.did.includes(i.text)).slice(0, 2);
     const last = items[0] ? items[0].at : lcAt;
     this.log({ tool: "resume_conversation", ref, result: "RESUMED", session: sid, previous: prevInteractions.length });
-    const remember = "Yes, I remember, we spoke " + spokeAt + " about order " + lcRef + ".";
+    const remember = "Yes, I spoke to you " + spokeAt + " about order " + lcRef + ".";
     this.resumeGreetings.set(sid, remember);
     const say = "Welcome back " + s(cv.first_name) + "! " + remember.slice(0, -1) +
       (lastConv.did.length ? ": " + lastConv.did.slice(0, 3).join("; ") + "." : ".") +
