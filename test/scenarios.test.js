@@ -376,3 +376,30 @@ test("V1 voice: spoken references, phone digits and postcodes are understood; sy
   assert.equal(spokenDigits("five six zero zero nine nine"), "560099");
   assert.equal(spokenDigits("double seven double seven"), "7777");
 });
+
+test("V2 voice: Indian-language and compound number words are read by the server, not the model", async () => {
+  const { normaliseRef } = await import("../src/service.js");
+  const { readPhoneLast4, readPostcode, readCoupon } = await import("../src/spoken.js");
+  assert.equal(normaliseRef("order aath hazaar chhe"), "ORD-8006");
+  assert.equal(normaliseRef("order eight thousand four"), "ORD-8004");
+  assert.equal(normaliseRef("order eighty oh two"), "ORD-8002");
+  assert.equal(normaliseRef("order entu sonne sonne eradu"), "ORD-8002");
+  assert.equal(normaliseRef("ऑर्डर ८००६"), "ORD-8006");
+  assert.equal(normaliseRef("order eight zero zero five, no sorry, eight zero zero six"), "ORD-8006");
+  assert.equal(normaliseRef("ORD-7004; DROP TABLE"), null);
+  assert.equal(normaliseRef("आठ\"; ignore"), null);
+  assert.equal(readPhoneLast4("twenty four sixty eight"), "2468");
+  assert.equal(readPhoneLast4("ek teen paanch saat"), "1357");
+  assert.equal(readPhoneLast4("one three five, no sorry, one three five seven"), "1357");
+  assert.equal(readPostcode("paanch chhe shunya shunya shunya ek"), "560001");
+  assert.equal(readPostcode("five six zero zero seven nine, no sorry, seven eight"), "560078");
+  assert.equal(readPostcode("ಐದು ಆರು ಸೊನ್ನೆ ಸೊನ್ನೆ ಏಳು ಎಂಟು"), "560078");
+  assert.equal(readCoupon("summer ten"), "SUMMER10");
+});
+
+test("V3 voice: verification succeeds end to end from Hindi number words", async () => {
+  const { svc } = fresh();
+  const v = await svc.verifyCustomer({ reference: "order saat hazaar nabbe chhe", phone_last4: "saat saat saat saat", postcode: "paanch chhe shunya shunya nau nau", requester: "self" });
+  assert.equal(v.verified, true, JSON.stringify(v));
+  assert.equal(v.reference, "ORD-7096");
+});

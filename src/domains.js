@@ -2,6 +2,7 @@
 //   Order Issue specialist, Address Modification specialist, Coupon & Promotion specialist.
 // Pure functions only (no I/O, no clock reads). Every money or state decision is made here, never by the model.
 import { s, rupees, hasInjection } from "./engine.js";
+import { readPostcode, readCoupon } from "./spoken.js";
 
 const up = (v) => s(v).toUpperCase();
 const int = (v) => { const n = parseInt(s(v), 10); return Number.isFinite(n) ? n : NaN; };
@@ -135,7 +136,7 @@ export function analyseOrderIssue({ order, details, events, ledger = [], refunds
 const PRE_DISPATCH = new Set(["PLACED", "ACCEPTED", "PREPARING"]);
 export function validateAddress(line, postcode) {
   const l = s(line).replace(/\s+/g, " ");
-  const pc = s(postcode).replace(/\s/g, "");
+  const pc = readPostcode(s(postcode)).replace(/\s/g, "");
   if (!/^\d{6}$/.test(pc)) return { ok: false, code: "INVALID_POSTCODE", say: "That postcode doesn't look right; it should be 6 digits." };
   if (l.length < 5 || l.length > 120) return { ok: false, code: "INVALID_ADDRESS_LINE", say: "Please give the full street address (house or flat number and street)." };
   if (hasInjection(l) || /[<>{}]/.test(l)) return { ok: false, code: "ADDRESS_REJECTED_UNSAFE_TEXT", say: "I can't use that text as an address. Please give just the street address." };
@@ -183,7 +184,7 @@ export function analyseCoupon({ order, details, promotions, code, customerOrders
   if (!order) return done("INSUFFICIENT_EVIDENCE", "NO_ORDER", "There is no order in the restaurant system for this reference, so I can't check a coupon on it.");
   if (!details) return done("INSUFFICIENT_EVIDENCE", "NO_ORDER_DETAILS", "I can't see the bill details for this order right now, so I can't check the coupon. I won't guess.");
   const onOrder = up(details.value.coupon_code);
-  const c = up(code || onOrder).replace(/[^A-Z0-9]/g, "").slice(0, 16);
+  const c = up(readCoupon(code) || onOrder).replace(/[^A-Z0-9]/g, "").slice(0, 16);
   if (!c) return done("RESOLVED_VERIFIED", "NO_COUPON", "There is no coupon on this order. Which coupon code did you try to use?");
   const subtotal = int(details.value.subtotal_paise), applied = c === onOrder ? int(details.value.discount_paise) || 0 : 0;
   if (!Number.isFinite(subtotal)) return done("INSUFFICIENT_EVIDENCE", "MALFORMED_BILL", "The bill record for this order is unreadable, so I can't check the discount. Nothing has been changed.");

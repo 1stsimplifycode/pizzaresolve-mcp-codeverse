@@ -42,9 +42,9 @@ function buildServer() {
 
   mcp.tool("verify_customer",
     "Identity & order association specialist. ALWAYS call this first, before discussing any order. Checks that the caller owns the order or payment reference using the last 4 digits of the account phone and the delivery postcode. Returns session_id when verified. Enforces lockout after repeated failures. Never reveals whether a reference exists. requester must be 'self' unless the caller says the order belongs to someone else (then pass a short word such as 'brother').",
-    { reference: z.string().describe("Order number like ORD-7002 or payment reference like PAY-9001"),
-      phone_last4: z.string().describe("Last 4 digits of the phone number on the account"),
-      postcode: z.string().describe("Delivery postcode"),
+    { reference: z.string().describe("Order or payment reference, e.g. ORD-7002 or PAY-9001. On voice, pass the caller's words exactly as said (e.g. 'order aath hazaar chhe'); the server reads number words in English, Hindi, Kannada, Tamil and Telugu"),
+      phone_last4: z.string().describe("Last 4 digits of the account phone. On voice, pass the caller's words exactly as said, including any self-correction; do not convert them yourself"),
+      postcode: z.string().describe("Delivery postcode. On voice, pass the caller's words exactly as said (e.g. 'paanch chhe shunya shunya shunya ek'); do not convert them yourself"),
       requester: z.string().optional().describe("'self' if the caller is the account holder, otherwise who they are (e.g. 'brother')"),
       conversation_id: z.string().optional().describe("Platform conversation/interaction id (mapped by Talkdesk, not typed by the caller)") },
     async (a) => safe("verify_customer", () => service.verifyCustomer(a)));
