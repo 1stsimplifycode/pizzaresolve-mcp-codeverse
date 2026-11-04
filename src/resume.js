@@ -139,10 +139,12 @@ export function installResume(Svc) {
     void sessAt;
     return out(true, "RESUMED", say, {
       verified: true, session_id: sid, reference: ref, expires_at: exp,
-      verification_level: "RETURNING_CUSTOMER (reference + " + factors.filter((f) => f.ok).map((f) => f.name).join(" + ") + "; fully verified in an earlier conversation within " + RESUME.WINDOW_DAYS + " days)",
-      previous_conversation, conversations, customer_summary,
-      previous_context: { customer_summary, conversations, last_contact: last, previous_interactions: prevInteractions, previous_conversations: priorSessions.slice(0, 3).map((x) => ({ at: s(x.value.created_at), order: s(x.value.ref), interaction_id: s(x.value.evidence) || null })), items },
-      reply_rule: "Start your reply with: '" + remember + "' and then what was done, in the customer's language.",
-      next_step_for_ai: "The customer is verified for this conversation: use ONLY this session_id (" + sid + ") for every tool; older sessions have expired. Do not ask them to repeat the problem; use previous_context." });
+      verification_level: "RETURNING_CUSTOMER (reference + " + factors.filter((f) => f.ok).map((f) => f.name).join(" + ") + ")",
+      we_spoke_at: spokeAt, previous_conversation,
+      customer_summary: { customer_id: customer_summary.customer_id, coupon_codes: customer_summary.coupon_codes, replacements: customer_summary.replacements, refunds: customer_summary.refunds, open_items: customer_summary.open_items },
+      previous_context: { customer_summary, previous_interactions: prevInteractions, conversations: conversations.slice(0, 3).map((c) => ({ at_ist: c.at_ist, order: c.order, interaction_id: c.interaction_id, what_happened: c.what_happened.slice(0, 3) })) },
+      conversations: conversations.slice(0, 3).map((c) => ({ at_ist: c.at_ist, order: c.order, interaction_id: c.interaction_id, what_happened: c.what_happened.slice(0, 3) })),
+      reply_rule: "Reply to the customer with customer_message as written (translate if needed, keep the time and order number). The customer is asking you to recall the earlier conversation, so do NOT ask what the issue is; customer_message already answers it.",
+      next_step_for_ai: "Use ONLY session_id " + sid + " for every tool in this conversation." });
   };
 }
