@@ -116,8 +116,9 @@ export function installResume(Svc) {
     const lcAt = s(lastConv.x.value.created_at), lcRef = s(lastConv.x.value.ref);
     const dayIst = (ms) => new Date(ms + 330 * 60000).toISOString().slice(0, 10);
     const dayWord = dayIst(t(lcAt)) === dayIst(now) ? "today" : dayIst(t(lcAt)) === dayIst(now - 86400000) ? "yesterday" : "on " + dayIst(t(lcAt));
-    const spokeAt = dayWord + " at " + ist(lcAt);
-    const previous_conversation = { at: lcAt, at_ist: spokeAt, order: lcRef, interaction_id: s(lastConv.x.value.evidence) || null, discussed: lastConv.did.slice(0, 4) };
+    const clock12 = (iso) => { const d = new Date(t(iso) + 330 * 60000); let h = d.getUTCHours(); const m = String(d.getUTCMinutes()).padStart(2, "0"); const ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12; return h + ":" + m + " " + ap; };
+    const spokeAt = dayWord + " at " + clock12(lcAt) + " (IST)";
+    const previous_conversation = { at: lcAt, at_ist: spokeAt, we_spoke_at: spokeAt, order: lcRef, interaction_id: s(lastConv.x.value.evidence) || null, discussed: lastConv.did.slice(0, 4) };
     const others = items.filter((i) => !lastConv.did.includes(i.text)).slice(0, 2);
     const last = items[0] ? items[0].at : lcAt;
     this.log({ tool: "resume_conversation", ref, result: "RESUMED", session: sid, previous: prevInteractions.length });

@@ -75,7 +75,7 @@ test("R1 a customer who closed the chat resumes later with order + postcode only
   assert.ok(r.previous_context.previous_interactions.includes("intA-0000000001"));
   assert.match(r.customer_message, new RegExp(g.coupon_code));
   assert.match(r.customer_message, /redelivery/);
-  assert.match(r.customer_message, /Yes, I remember, we spoke (today|yesterday|on [0-9-]+) at \d\d:\d\d IST about order ORD-8002/);
+  assert.match(r.customer_message, /Yes, I remember, we spoke (today|yesterday|on [0-9-]+) at \d{1,2}:\d\d [AP]M \(IST\) about order ORD-8002/);
   assert.equal(r.previous_conversation.interaction_id, "intA-0000000001");
   assert.ok(r.previous_conversation.discussed.some((d) => /redelivery/.test(d)));
   // The resumed session works for follow-ups on any of the customer's own orders.
@@ -117,7 +117,7 @@ test("R4 'we spoke at' refers to the order the customer names, not just the late
   await login(svc, "ORD-8009", "2468", "560078", "intY-0000000002"); // a later chat about another order
   nowRef.v += 60 * 60000;
   const r = await svc.resumeConversation({ reference: "ORD-8002", postcode: "560078" });
-  assert.match(r.customer_message, /we spoke today at \d\d:\d\d IST about order ORD-8002/);
+  assert.match(r.customer_message, /we spoke today at \d{1,2}:\d\d [AP]M \(IST\) about order ORD-8002/);
   assert.match(r.customer_message, /redelivery/);
   assert.equal(r.previous_conversation.interaction_id, "intX-0000000001");
 });
@@ -137,8 +137,8 @@ test("R6 first tool reply after resume opens with 'Yes, I remember, we spoke ...
   await login(svc, "ORD-8002", "2468", "560078");
   nowRef.v += 3600000;
   const r = await svc.resumeConversation({ reference: "ORD-8002", postcode: "560078" });
-  assert.match(r.customer_message, /Yes, I remember, we spoke today at \d\d:\d\d IST about order ORD-8002/);
-  assert.match(svc.takeResumeGreeting(r.session_id), /^Yes, I remember, we spoke today at \d\d:\d\d IST about order ORD-8002\.$/);
+  assert.match(r.customer_message, /Yes, I remember, we spoke today at \d{1,2}:\d\d [AP]M \(IST\) about order ORD-8002/);
+  assert.match(svc.takeResumeGreeting(r.session_id), /^Yes, I remember, we spoke today at \d{1,2}:\d\d [AP]M \(IST\) about order ORD-8002\.$/);
   assert.equal(svc.takeResumeGreeting(r.session_id), ""); // only once
 });
 
@@ -152,5 +152,5 @@ test("R7 the customer's memory covers codes, replacements and conversations (cus
   assert.equal(r.customer_summary.customer_id, "CUS-201");
   assert.ok(r.customer_summary.replacements.some((x) => /replacement pizza.*Paneer/i.test(x)), JSON.stringify(r.customer_summary));
   assert.ok(r.conversations.some((c) => c.interaction_id === "intR-0000000001" && c.what_happened.length));
-  assert.match(r.customer_message, /Yes, I remember, we spoke today at \d\d:\d\d IST about order ORD-8005: a free replacement pizza/);
+  assert.match(r.customer_message, /Yes, I remember, we spoke today at \d{1,2}:\d\d [AP]M \(IST\) about order ORD-8005: a free replacement pizza/);
 });
