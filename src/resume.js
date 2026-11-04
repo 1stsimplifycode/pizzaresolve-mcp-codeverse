@@ -25,27 +25,40 @@ function describe(row, refundsById) {
       ? "apology code " + s(v.ref) + " (given after the problem with " + o + ") was used on " + s(meta.redeemed_on_order)
       : "apology code " + s(v.ref) + " was given after the problem with " + o + ", Rs " + (amt / 100) + " off, not used yet, valid until " + s(v.expires_at).slice(0, 10);
     case "EXECUTED_GOODWILL_HONOURED": return "code " + s(v.ref) + " was applied to " + o + " and " + rupees(amt) + " refunded";
-    case "EXECUTED_REFUND": return rupees(amt) + " was refunded for " + o;
-    case "EXECUTED_REPLACEMENT": return "a free replacement order " + s(v.reason) + " was created for " + o;
+    case "EXECUTED_REFUND": return rupees(amt) + " was refunded for " + o + (s(v.reason) ? " (transaction " + s(v.reason) + ")" : "");
+    case "EXECUTED_REPLACEMENT": {
+      const m = /ordered (.*?); packed (.*)$/.exec(s(v.summary)) || [];
+      return "a free replacement pizza" + (m[1] ? " (" + m[1].replace(/^\[|\]$/g, "") + ")" : "") + " was sent as order " + s(v.reason) + " for " + o + (m[2] ? ", because " + m[2].replace(/^\[|\]$/g, "") + " was packed instead" : "");
+    }
     case "EXECUTED_REDELIVERY": return "a priority redelivery was booked for " + o;
     case "EXECUTED_COUPON_CORRECTION": return "the coupon on " + o + " was corrected and " + rupees(amt) + " refunded";
     case "REFUND_REQUEST": return "a refund request of " + rupees(amt) + " for " + o + " is " + s(v.status).toLowerCase().replace(/_/g, " ");
     case "DELIVERY_INVESTIGATION": return "a delivery investigation for " + o + " is " + s(v.status).toLowerCase();
-    case "ORDER_ISSUE": return "an item complaint for " + o + " was logged";
+    case "ORDER_ISSUE": return "your complaint about " + s(v.reason).toLowerCase().replace(/_/g, " ") + " on " + o + " was checked (" + s(v.decision).toLowerCase().replace(/_/g, " ") + ")";
     case "ESCALATION": return "your case on " + o + " was sent to our team (" + s(v.status).toLowerCase().replace(/_/g, " ") + ")";
     case "ADDRESS_CHANGE": return "the delivery address of " + o + " was " + (up(v.status) === "APPLIED" ? "changed" : "asked to be changed");
     case "CASE": {
       const st = up(v.status);
       if (st === "AWAITING_HUMAN_REVIEW") return "case " + row.key + ": a " + rupees(amt) + " " + s(v.reason).toLowerCase() + " is waiting for a team member's approval";
-      if (st === "RESOLVED") return "case " + row.key + " is resolved";
+      if (st === "RESOLVED") return "case " + row.key + " is resolved" + (meta.last_decision && meta.last_decision.message ? ": " + s(meta.last_decision.message).slice(0, 140) : "");
+      if (st === "REJECTED") return "case " + row.key + ": a team member decided against the proposed fix";
       return null;
     }
+    case "APPROVAL": return "a team member (" + s(v.decision) + ") approved the " + s(v.reason).toLowerCase() + " for " + s(v.ref);
+    case "PROMO_ADJUSTMENT_REQUEST": return "a discount correction of " + rupees(amt) + " for " + o + " was requested";
+    case "CANCELLATION_REQUEST": return "a cancellation was requested for " + o;
     default: return null;
   }
 }
 
 export function installResume(Svc) {
   const P = Svc.prototype;
+  // The first tool reply in a resumed conversation opens with "Yes, I remember, we spoke at <time>..." (once).
+  Object.defineProperty(P, "resumeGreetings", { get() { if (!this._rg) this._rg = new Map(); return this._rg; } });
+  P.takeResumeGreeting = function (sessionId) {
+    const k = String(sessionId || "").trim().toUpperCase(); const g = this.resumeGreetings.get(k);
+    if (g) this.resumeGreetings.delete(k); return g || "";
+  };
 
   P.resumeConversation = async function ({ reference = "", postcode = "", phone_last4 = "", caller_id = "", conversation_id = "", platform_session_id = "" }) {
     const out = (resumed, reason_code, say, extra = {}) => ({ action: "RESUME_CONVERSATION", resumed, reason_code, customer_message: say, ...extra });
@@ -108,15 +121,27 @@ export function installResume(Svc) {
     const others = items.filter((i) => !lastConv.did.includes(i.text)).slice(0, 2);
     const last = items[0] ? items[0].at : lcAt;
     this.log({ tool: "resume_conversation", ref, result: "RESUMED", session: sid, previous: prevInteractions.length });
-    const say = "Welcome back " + s(cv.first_name) + "! Yes, we spoke " + spokeAt + " about order " + lcRef +
+    const remember = "Yes, I remember, we spoke " + spokeAt + " about order " + lcRef + ".";
+    this.resumeGreetings.set(sid, remember);
+    const say = "Welcome back " + s(cv.first_name) + "! " + remember.slice(0, -1) +
       (lastConv.did.length ? ": " + lastConv.did.slice(0, 3).join("; ") + "." : ".") +
       (others.length ? " Also on your account: " + others.map((i) => i.text).join("; ") + "." : "") + " What would you like to follow up on?";
+    const pick = (re) => [...new Set(facts.filter((f) => re.test(f.kind)).map((f) => f.text))].slice(0, 5);
+    const sessAt = new Map(priorSessions.map((x) => [x.key, x]));
+    const conversations = priorSessions.slice(0, 5).map((x) => ({ at: s(x.value.created_at), at_ist: when(x.value.created_at), order: s(x.value.ref), interaction_id: s(x.value.evidence) || null,
+      what_happened: [...new Set(bySession(x.key))] })).filter((c) => c.what_happened.length || c.order === ref);
+    const customer_summary = {
+      customer_id: customer.key, first_name: s(cv.first_name),
+      issues_resolved: pick(/^EXECUTED_|^CASE$/), coupon_codes: pick(/^GOODWILL_COUPON$|^EXECUTED_GOODWILL_HONOURED$|^EXECUTED_COUPON_CORRECTION$/),
+      replacements: pick(/^EXECUTED_REPLACEMENT$/), refunds: pick(/^EXECUTED_REFUND$|^REFUND_REQUEST$|^EXECUTED_GOODWILL_HONOURED$/),
+      open_items: [...new Set(facts.filter((f) => /waiting for a team member|is open|is requested|not used yet/.test(f.text)).map((f) => f.text))].slice(0, 4) };
+    void sessAt;
     return out(true, "RESUMED", say, {
       verified: true, session_id: sid, reference: ref, expires_at: exp,
       verification_level: "RETURNING_CUSTOMER (reference + " + factors.filter((f) => f.ok).map((f) => f.name).join(" + ") + "; fully verified in an earlier conversation within " + RESUME.WINDOW_DAYS + " days)",
-      previous_conversation,
+      previous_conversation, conversations, customer_summary,
       previous_context: { last_contact: last, previous_interactions: prevInteractions, previous_conversations: priorSessions.slice(0, 3).map((x) => ({ at: s(x.value.created_at), order: s(x.value.ref), interaction_id: s(x.value.evidence) || null })), items },
-      reply_rule: "Start your reply with: 'Yes, we spoke " + spokeAt + " about order " + lcRef + "' and then what was done, in the customer's language.",
+      reply_rule: "Start your reply with: '" + remember + "' and then what was done, in the customer's language.",
       next_step_for_ai: "The customer is verified for this conversation: use ONLY this session_id (" + sid + ") for every tool; older sessions have expired. Do not ask them to repeat the problem; use previous_context." });
   };
 }

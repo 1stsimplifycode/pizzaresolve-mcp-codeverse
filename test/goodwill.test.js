@@ -75,7 +75,7 @@ test("R1 a customer who closed the chat resumes later with order + postcode only
   assert.ok(r.previous_context.previous_interactions.includes("intA-0000000001"));
   assert.match(r.customer_message, new RegExp(g.coupon_code));
   assert.match(r.customer_message, /redelivery/);
-  assert.match(r.customer_message, /Yes, we spoke (today|yesterday|on [0-9-]+) at \d\d:\d\d IST about order ORD-8002/);
+  assert.match(r.customer_message, /Yes, I remember, we spoke (today|yesterday|on [0-9-]+) at \d\d:\d\d IST about order ORD-8002/);
   assert.equal(r.previous_conversation.interaction_id, "intA-0000000001");
   assert.ok(r.previous_conversation.discussed.some((d) => /redelivery/.test(d)));
   // The resumed session works for follow-ups on any of the customer's own orders.
@@ -130,4 +130,27 @@ test("R5 resume never exposes old session ids (agents must only see the new one)
   const ids = JSON.stringify(r).match(/VS-[A-Z2-7]{10}/g) || [];
   assert.ok(ids.length > 0 && ids.every((x) => x === r.session_id), ids.join(","));
   assert.ok(!JSON.stringify(r).includes(old));
+});
+
+test("R6 first tool reply after resume opens with 'Yes, I remember, we spoke ... at HH:MM IST'", async () => {
+  const { svc, nowRef } = fresh();
+  await login(svc, "ORD-8002", "2468", "560078");
+  nowRef.v += 3600000;
+  const r = await svc.resumeConversation({ reference: "ORD-8002", postcode: "560078" });
+  assert.match(r.customer_message, /Yes, I remember, we spoke today at \d\d:\d\d IST about order ORD-8002/);
+  assert.match(svc.takeResumeGreeting(r.session_id), /^Yes, I remember, we spoke today at \d\d:\d\d IST about order ORD-8002\.$/);
+  assert.equal(svc.takeResumeGreeting(r.session_id), ""); // only once
+});
+
+test("R7 the customer's memory covers codes, replacements and conversations (customer-level, any order)", async () => {
+  const { svc, nowRef } = fresh();
+  const s1 = await login(svc, "ORD-8005", "2468", "560078", "intR-0000000001");
+  const rep = await svc.createReplacementOrder({ session_id: s1, reference: "ORD-8005" });
+  assert.match(rep.outcome, /CREATED/, JSON.stringify(rep));
+  nowRef.v += 2 * 3600000;
+  const r = await svc.resumeConversation({ reference: "ORD-8005", postcode: "560078" });
+  assert.equal(r.customer_summary.customer_id, "CUS-201");
+  assert.ok(r.customer_summary.replacements.some((x) => /replacement pizza.*Paneer/i.test(x)), JSON.stringify(r.customer_summary));
+  assert.ok(r.conversations.some((c) => c.interaction_id === "intR-0000000001" && c.what_happened.length));
+  assert.match(r.customer_message, /Yes, I remember, we spoke today at \d\d:\d\d IST about order ORD-8005: a free replacement pizza/);
 });

@@ -37,6 +37,16 @@ async function safe(tool, fn) {
   }
 }
 
+// Additive wrapper: after a resume, the first customer_message in that session starts with the "I remember" line.
+async function safeA(a, tool, fn) {
+  return safe(tool, async () => {
+    const r = await fn();
+    const g = a && a.session_id && typeof service.takeResumeGreeting === "function" ? service.takeResumeGreeting(a.session_id) : "";
+    if (g && r && typeof r === "object" && r.customer_message && !String(r.customer_message).includes("I remember")) r.customer_message = g + " " + r.customer_message;
+    return r;
+  });
+}
+
 function buildServer() {
   const mcp = new McpServer({ name: "PizzaResolve_MCP_Codeverse", version: "1.0.0" });
 
@@ -47,38 +57,38 @@ function buildServer() {
       postcode: z.string().describe("Delivery postcode. On voice, pass the caller's words exactly as said (e.g. 'paanch chhe shunya shunya shunya ek'); do not convert them yourself"),
       requester: z.string().optional().describe("'self' if the caller is the account holder, otherwise who they are (e.g. 'brother')"),
       conversation_id: z.string().optional().describe("Platform conversation/interaction id (mapped by Talkdesk, not typed by the caller)") },
-    async (a) => safe("verify_customer", () => service.verifyCustomer(a)));
+    async (a) => safeA(a, "verify_customer", () => service.verifyCustomer(a)));
 
   mcp.tool("investigate_order",
     "Case analysis & orchestration: runs the payment specialist and the delivery specialist over the order, payment, kitchen/courier and refund records and reconciles them. Returns decision (RESOLVED_VERIFIED, ACTION_REQUIRED, ACTION_PENDING, INSUFFICIENT_EVIDENCE, CONFLICTING_RECORDS, ESCALATION_REQUIRED, SECURITY_BLOCKED), reason_code, evidence references, authorized_actions and customer_message. Relay customer_message, translated into the customer's language; never add facts it does not contain. Requires session_id from verify_customer.",
     { session_id: z.string().describe("session_id returned by verify_customer"),
       reference: z.string().describe("Order or payment reference being discussed"),
       reported_issues: z.string().optional().describe("Comma-separated list of what the customer reports, from: " + ISSUES) },
-    async (a) => safe("investigate_order", () => service.investigateOrder({ ...a, reported_issues: String(a.reported_issues || "").split(/[,;\s]+/).filter(Boolean) })));
+    async (a) => safeA(a, "investigate_order", () => service.investigateOrder({ ...a, reported_issues: String(a.reported_issues || "").split(/[,;\s]+/).filter(Boolean) })));
 
   mcp.tool("request_refund",
     "Payment & refund specialist. Raises an idempotent refund REQUEST only when policy authorised it in investigate_order. The amount is decided by policy, not by you. Repeating the call never creates a second refund. A request is not a completed refund: say only what customer_message says.",
     { session_id: z.string(), reference: z.string().describe("Order or payment reference"),
       payment_id: z.string().optional().describe("Payment id from authorized_actions (e.g. PAY-9004B) when there is more than one") },
-    async (a) => safe("request_refund", () => service.requestRefund(a)));
+    async (a) => safeA(a, "request_refund", () => service.requestRefund(a)));
 
   mcp.tool("open_delivery_investigation",
     "Delivery investigation & recovery specialist. Opens one delivery investigation for an overdue, stalled or disputed delivery when policy allows it. Idempotent. Does not promise a replacement.",
     { session_id: z.string(), reference: z.string().describe("Order reference") },
-    async (a) => safe("open_delivery_investigation", () => service.openDeliveryInvestigation(a)));
+    async (a) => safeA(a, "open_delivery_investigation", () => service.openDeliveryInvestigation(a)));
 
   mcp.tool("record_human_review",
     "Human escalation specialist. Records the verified case for review by a person, with a server-built summary so the customer need not repeat themselves. There is NO live transfer in this channel: never say you are transferring or connecting the customer. Idempotent per order.",
     { session_id: z.string(), reference: z.string(),
       customer_request: z.string().optional().describe("One short sentence of what the customer wants (no phone numbers or card details)") },
-    async (a) => safe("record_human_review", () => service.recordHumanReview(a)));
+    async (a) => safeA(a, "record_human_review", () => service.recordHumanReview(a)));
 
   // ---------------- multi-agent extension (Supervisor + specialist agents) ----------------
   mcp.tool("get_customer_context",
     "Identity & Context specialist. Signs in a customer who logged in on the PizzaResolve portal (login_code like LC-ABCD2345, single use) OR refreshes the context of an existing session_id. Returns session_id, first name, the customer's own recent orders and open cases. Never returns other customers' data.",
     { login_code: z.string().optional().describe("Login code the customer got from the PizzaResolve login page, e.g. LC-ABCD2345"),
       session_id: z.string().optional().describe("Existing session_id, if already verified") },
-    async (a) => safe("get_customer_context", () => service.customerContext(a)));
+    async (a) => safeA(a, "get_customer_context", () => service.customerContext(a)));
 
   mcp.tool("resolve_case",
     "Case coordination for the Supervisor: runs several department specialists for ONE verified order at the same time (PAYMENT, DELIVERY, ORDER_ISSUE, ADDRESS, COUPON, CANCEL, HUMAN), resolves conflicts between them, and returns one plan with action_ids. Call again with confirm_actions (the action_ids the customer agreed to) to execute them safely in order. Relay customer_message only, translated into the customer's language.",
@@ -87,7 +97,7 @@ function buildServer() {
       issue_type: z.string().optional().describe("For ORDER_ISSUE: WRONG_ITEM, MISSING_ITEM, WRONG_QUANTITY, DAMAGED, WRONG_CUSTOMISATION, PARTIAL"),
       item: z.string().optional(), new_address_line: z.string().optional(), new_postcode: z.string().optional(), coupon_code: z.string().optional(),
       confirm_actions: z.string().optional().describe("Comma-separated action_ids from the previous plan that the customer explicitly agreed to") },
-    async (a) => safe("resolve_case", () => service.resolveCase(a)));
+    async (a) => safeA(a, "resolve_case", () => service.resolveCase(a)));
 
   mcp.tool("report_order_issue",
     "Order Issue specialist: checks a wrong, missing, short, damaged or wrongly customised item against the kitchen pack-scan record, logs the complaint, and (only if verified and the customer chooses) raises an item refund request or a replacement request. Idempotent.",
@@ -96,55 +106,55 @@ function buildServer() {
       item: z.string().optional().describe("Item the customer mentions, e.g. 'paneer pizza'"),
       description: z.string().optional().describe("One short sentence from the customer (no phone or card numbers)"),
       remedy: z.string().optional().describe("Leave empty to assess. 'REFUND' or 'REPLACEMENT' only after the customer chose it") },
-    async (a) => safe("report_order_issue", () => service.reportOrderIssue(a)));
+    async (a) => safeA(a, "report_order_issue", () => service.reportOrderIssue(a)));
 
   mcp.tool("check_address_change",
     "Address Modification specialist: checks whether the delivery address of an order can still change (fulfilment stage, dispatch cutoff, delivery zone, same store) and, only with apply='true' after the customer confirms, changes it with a version check. Never changes an order that has left the restaurant.",
     { session_id: z.string(), reference: z.string().describe("Order reference"),
       new_address_line: z.string().optional(), new_postcode: z.string().optional().describe("6-digit postcode"),
       apply: z.string().optional().describe("'true' only after the customer confirmed the new address; otherwise leave empty") },
-    async (a) => safe("check_address_change", () => service.checkAddressChange(a)));
+    async (a) => safeA(a, "check_address_change", () => service.checkAddressChange(a)));
 
   mcp.tool("check_coupon",
     "Offers & Coupons specialist: validates a coupon against the promotions system (exists, active, expiry, minimum order, eligibility, stacking), recomputes the discount and compares it with the bill. With request_adjustment='true' after the customer agrees, raises one correction request for an under-applied discount. Idempotent.",
     { session_id: z.string(), reference: z.string().describe("Order reference"),
       coupon_code: z.string().optional().describe("Coupon the customer mentions; defaults to the one on the order"),
       request_adjustment: z.string().optional().describe("'true' only after the customer agreed to the correction request") },
-    async (a) => safe("check_coupon", () => service.checkCoupon(a)));
+    async (a) => safeA(a, "check_coupon", () => service.checkCoupon(a)));
 
   // ---------------- business execution layer: real sandbox operations with read-back verification ----------------
   mcp.tool("execute_refund",
     "Refund agent: EXECUTES a policy-approved refund in the sandbox payment processor and confirms it by re-reading the refund record. Blocks duplicates. Use after investigate_order shows a refund is due or a refund request is on file.",
     { session_id: z.string(), reference: z.string(), payment_id: z.string().optional() },
-    async (a) => safe("execute_refund", () => service.executeRefund(a)));
+    async (a) => safeA(a, "execute_refund", () => service.executeRefund(a)));
   mcp.tool("create_replacement_order",
     "Order Issues agent: for a delivered order where the kitchen packed a different item than ordered, CREATES a free replacement order linked to the original plus the kitchen task, and verifies both. Resumable if a step failed.",
     { session_id: z.string(), reference: z.string() },
-    async (a) => safe("create_replacement_order", () => service.createReplacementOrder(a)));
+    async (a) => safeA(a, "create_replacement_order", () => service.createReplacementOrder(a)));
   mcp.tool("create_redelivery_task",
     "Delivery agent: for an order running more than 15 min late, BOOKS a priority redelivery in the dispatch system and updates the order ETA, then verifies it. Never claims the pizza is delivered.",
     { session_id: z.string(), reference: z.string() },
-    async (a) => safe("create_redelivery_task", () => service.createRedeliveryTask(a)));
+    async (a) => safeA(a, "create_redelivery_task", () => service.createRedeliveryTask(a)));
   mcp.tool("apply_coupon_correction",
     "Coupons agent: when a valid coupon was under-applied, APPLIES the correct discount to the bill and refunds the difference in the sandbox processor, verifying both. Refuses expired, below-minimum or already-refunded cases.",
     { session_id: z.string(), reference: z.string(), coupon_code: z.string().optional() },
-    async (a) => safe("apply_coupon_correction", () => service.applyCouponCorrection(a)));
+    async (a) => safeA(a, "apply_coupon_correction", () => service.applyCouponCorrection(a)));
   mcp.tool("execute_resolution",
     "Orchestrator: runs several fixes for ONE verified order in dependency order (goals: REFUND, REPLACEMENT, REDELIVERY, COUPON, comma separated), reports what completed, what is pending and how to recover. Re-running skips finished steps.",
     { session_id: z.string(), reference: z.string(), goals: z.string() },
-    async (a) => safe("execute_resolution", () => service.executeResolution(a)));
+    async (a) => safeA(a, "execute_resolution", () => service.executeResolution(a)));
   mcp.tool("get_case",
     "Any agent: reads the shared Human-AI case for a verified order: status, owner (AI or a named team member), pending proposal, the human's notes and decisions, and history. Call it when the customer comes back, asks for status, or after a human returned the case to AI, so you continue without asking again.",
     { session_id: z.string(), reference: z.string() },
-    async (a) => safe("get_case", () => service.getCase(a)));
+    async (a) => safeA(a, "get_case", () => service.getCase(a)));
   mcp.tool("handoff_to_human",
     "Human_Escalation agent: hands a verified case to a team member WITH the AI's investigation attached (human-led mode). Use only when the customer asks for a person or a tool result says a human must decide. You stay on the case as copilot.",
     { session_id: z.string(), reference: z.string(), reason: z.string().optional() },
-    async (a) => safe("handoff_to_human", () => service.handoffToHuman(a)));
+    async (a) => safeA(a, "handoff_to_human", () => service.handoffToHuman(a)));
   mcp.tool("verify_outcome",
     "Any agent: re-reads the authoritative refund, replacement, delivery, address and coupon state for a verified order, to confirm what is actually done before telling the customer.",
     { session_id: z.string(), reference: z.string() },
-    async (a) => safe("verify_outcome", () => service.verifyOutcome(a)));
+    async (a) => safeA(a, "verify_outcome", () => service.verifyOutcome(a)));
 
   // ---------------- goodwill coupons with cross-conversation memory (additions) ----------------
   mcp.tool("issue_goodwill_coupon",
@@ -153,14 +163,14 @@ function buildServer() {
       reason: z.string().optional().describe("A few words, e.g. 'late delivery'"),
       conversation_id: z.string().optional().describe("Talkdesk Interaction ID (mapped by the platform)"),
       platform_session_id: z.string().optional().describe("Talkdesk Session ID (mapped by the platform)") },
-    async (a) => safe("issue_goodwill_coupon", () => service.issueGoodwillCoupon(a)));
+    async (a) => safeA(a, "issue_goodwill_coupon", () => service.issueGoodwillCoupon(a)));
   mcp.tool("honour_goodwill_coupon",
     "Offers & Coupons agent: when a customer says a code WE GAVE THEM earlier doesn't work, finds that promise from the earlier conversation (by code, or their latest code), explains exactly why it didn't apply, and if they are entitled applies it to the order they name and refunds the amount, verified.",
     { session_id: z.string().describe("session_id returned by verify_customer"), reference: z.string().describe("Order the customer tried to use the code on"),
       coupon_code: z.string().optional().describe("The code as the caller said it; leave empty if they don't remember it"),
       conversation_id: z.string().optional().describe("Talkdesk Interaction ID (mapped by the platform)"),
       platform_session_id: z.string().optional().describe("Talkdesk Session ID (mapped by the platform)") },
-    async (a) => safe("honour_goodwill_coupon", () => service.honourGoodwillCoupon(a)));
+    async (a) => safeA(a, "honour_goodwill_coupon", () => service.honourGoodwillCoupon(a)));
 
   // ---------------- conversation resume across conversations (addition) ----------------
   mcp.tool("resume_conversation",
@@ -171,7 +181,7 @@ function buildServer() {
       caller_id: z.string().optional().describe("Talkdesk Caller ID (mapped by the platform)"),
       conversation_id: z.string().optional().describe("Talkdesk Interaction ID (mapped by the platform)"),
       platform_session_id: z.string().optional().describe("Talkdesk Session ID (mapped by the platform)") },
-    async (a) => safe("resume_conversation", () => service.resumeConversation(a)));
+    async (a) => safeA(a, "resume_conversation", () => service.resumeConversation(a)));
 
   return mcp;
 }
