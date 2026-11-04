@@ -6,6 +6,7 @@ import { StoreUnavailable, UnknownOutcome } from "./store.js";
 import { installMultiAgent } from "./multiagent.js";
 import { installExecution } from "./execution.js";
 import { installCollab } from "./collab.js";
+import { installGoodwill } from "./goodwill.js";
 import { spokenDigits, readDigits, readPhoneLast4, readPostcode } from "./spoken.js";
 
 const up = (v) => s(v).toUpperCase();
@@ -306,6 +307,7 @@ export class PizzaService {
 installMultiAgent(PizzaService);
 installExecution(PizzaService);
 installCollab(PizzaService);
+installGoodwill(PizzaService);
 
 function base32(buf) {
   const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";

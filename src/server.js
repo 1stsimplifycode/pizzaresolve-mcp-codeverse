@@ -146,6 +146,22 @@ function buildServer() {
     { session_id: z.string(), reference: z.string() },
     async (a) => safe("verify_outcome", () => service.verifyOutcome(a)));
 
+  // ---------------- goodwill coupons with cross-conversation memory (additions) ----------------
+  mcp.tool("issue_goodwill_coupon",
+    "Delivery / Order Issues agent: after a service failure on a verified order has been fixed, ISSUES one personal apology code (Rs 100 off the next order of Rs 300+, single use, 14 days) and remembers the interaction and session it was given in. Idempotent: one code per order.",
+    { session_id: z.string().describe("session_id returned by verify_customer"), reference: z.string().describe("Order that had the problem"),
+      reason: z.string().optional().describe("A few words, e.g. 'late delivery'"),
+      conversation_id: z.string().optional().describe("Talkdesk Interaction ID (mapped by the platform)"),
+      platform_session_id: z.string().optional().describe("Talkdesk Session ID (mapped by the platform)") },
+    async (a) => safe("issue_goodwill_coupon", () => service.issueGoodwillCoupon(a)));
+  mcp.tool("honour_goodwill_coupon",
+    "Offers & Coupons agent: when a customer says a code WE GAVE THEM earlier doesn't work, finds that promise from the earlier conversation (by code, or their latest code), explains exactly why it didn't apply, and if they are entitled applies it to the order they name and refunds the amount, verified.",
+    { session_id: z.string().describe("session_id returned by verify_customer"), reference: z.string().describe("Order the customer tried to use the code on"),
+      coupon_code: z.string().optional().describe("The code as the caller said it; leave empty if they don't remember it"),
+      conversation_id: z.string().optional().describe("Talkdesk Interaction ID (mapped by the platform)"),
+      platform_session_id: z.string().optional().describe("Talkdesk Session ID (mapped by the platform)") },
+    async (a) => safe("honour_goodwill_coupon", () => service.honourGoodwillCoupon(a)));
+
   return mcp;
 }
 
