@@ -143,6 +143,14 @@ export class PizzaService {
       this.log({ tool: "verify_customer", ref, result: "THIRD_PARTY_BLOCKED", sticky: !!cid });
       return { verified: false, decision: "SECURITY_BLOCKED", reason_code: "THIRD_PARTY_REQUEST", customer_message: THIRD_PARTY_MSG };
     }
+    // Returning customer (addition): only ONE detail given and the same customer was fully verified recently ->
+    // resume instead of failing, so a follow-up in a new conversation doesn't start from scratch.
+    const has4 = /\d{4}/.test(String(phone_last4 || "").replace(/\D/g, "")), has6 = /\d{6}/.test(String(postcode || "").replace(/\D/g, ""));
+    if (has4 !== has6 && typeof this.resumeConversation === "function") {
+      const r = await this.resumeConversation({ reference: ref, postcode: has6 ? postcode : "", phone_last4: has4 ? phone_last4 : "", conversation_id });
+      if (r.resumed) return { ...r, verified: true, data_source: undefined };
+      if (r.reason_code !== "NEED_FULL_VERIFICATION" && r.reason_code !== "NEED_ONE_DETAIL") return { verified: false, decision: "SECURITY_BLOCKED", reason_code: r.reason_code, customer_message: r.customer_message };
+    }
     let customer = null;
     if (b && b.customerIds.length === 1) customer = customers.find((c) => c.key === b.customerIds[0]) || null;
     const conflictOwner = b && b.customerIds.length > 1;

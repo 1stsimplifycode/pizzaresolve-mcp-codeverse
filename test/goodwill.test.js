@@ -92,3 +92,16 @@ test("R2 resume refuses strangers: no prior verification, wrong postcode counts 
   const voice = await svc.resumeConversation({ reference: "ORD-8006", caller_id: "+91 98450 01357" });
   assert.equal(voice.resumed, true, JSON.stringify(voice));
 });
+
+test("R3 verify_customer with only the postcode resumes a recently verified customer instead of failing", async () => {
+  const { svc, nowRef } = fresh();
+  await login(svc, "ORD-8009", "2468", "560078");
+  nowRef.v += 2 * 3600000;
+  const v = await svc.verifyCustomer({ reference: "ORD-8009", phone_last4: "", postcode: "560078", requester: "self", conversation_id: "intC-0000000003" });
+  assert.equal(v.verified, true, JSON.stringify(v));
+  assert.equal(v.reason_code, "RESUMED");
+  const bad = await svc.verifyCustomer({ reference: "ORD-8009", phone_last4: "", postcode: "560001", requester: "self" });
+  assert.equal(bad.verified, false);
+  const fresh2 = await svc.verifyCustomer({ reference: "ORD-8006", phone_last4: "", postcode: "560102", requester: "self" });
+  assert.equal(fresh2.verified, false); // never verified before -> normal path, no shortcut
+});
