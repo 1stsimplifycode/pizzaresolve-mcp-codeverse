@@ -55,3 +55,10 @@ test("G2 refusals: no failure on record, another customer's code, expired, below
   const sB = await login(svc, "ORD-8007", "2468", "560078");
   assert.equal((await svc.honourGoodwillCoupon({ session_id: sB, reference: "ORD-8007" })).reason_code, "EXPIRED");
 });
+
+test("G3 a wrong session_id like 'verified' gets an agent hint instead of a silent re-verify", async () => {
+  const { svc } = fresh();
+  const r = await svc.investigateOrder({ session_id: "verified", reference: "ORD-8002", reported_issues: [] });
+  assert.equal(r.reason_code, "NOT_VERIFIED");
+  assert.match(r.agent_hint, /VS-/);
+});

@@ -176,7 +176,8 @@ export class PizzaService {
     try { [ledger, b] = await Promise.all([this.store.list("ledger"), this.bundle(ref)]); }
     catch { return { err: { decision: "INSUFFICIENT_EVIDENCE", reason_code: "SYSTEM_UNAVAILABLE", customer_message: UNAVAILABLE_MSG } }; }
     const sess = await this.session(session_id, ledger);
-    if (!sess) return { err: { decision: "SECURITY_BLOCKED", reason_code: "NOT_VERIFIED", customer_message: "I need to verify you before I can look at an order. Please give the order or payment reference, the last 4 digits of the account phone number, and the delivery postcode." } };
+    if (!sess) return { err: { decision: "SECURITY_BLOCKED", reason_code: "NOT_VERIFIED", customer_message: "I need to verify you before I can look at an order. Please give the order or payment reference, the last 4 digits of the account phone number, and the delivery postcode.",
+      ...(!/^VS-[A-Z2-7]{10}$/i.test(String(session_id || "").trim()) ? { agent_hint: "session_id must be the exact value returned by verify_customer in this conversation (it looks like VS-ABCDE23456), not '" + String(session_id || "").slice(0, 20) + "'. If the customer was already verified in this conversation, call this tool again with that VS- session_id; do not ask the customer to verify again." } : {}) } };
     if (sess.expired) return { err: { decision: "SECURITY_BLOCKED", reason_code: "SESSION_EXPIRED", customer_message: "For security, your verification has expired. Please verify again with your reference, phone last 4 digits and postcode." } };
     if (!b || !b.customerIds.includes(sess.customer_id) || b.customerIds.length !== 1) {
       this.log({ tool: "authorise", ref, result: "CROSS_CUSTOMER_BLOCKED", session: sess.id });
