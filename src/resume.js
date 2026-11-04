@@ -118,7 +118,7 @@ export function installResume(Svc) {
     const dayWord = dayIst(t(lcAt)) === dayIst(now) ? "today" : dayIst(t(lcAt)) === dayIst(now - 86400000) ? "yesterday" : "on " + dayIst(t(lcAt));
     const clock12 = (iso) => { const d = new Date(t(iso) + 330 * 60000); let h = d.getUTCHours(); const m = String(d.getUTCMinutes()).padStart(2, "0"); const ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12; return h + ":" + m + " " + ap; };
     const spokeAt = dayWord + " at " + clock12(lcAt) + " (IST)";
-    const previous_conversation = { at: lcAt, at_ist: spokeAt, we_spoke_at: spokeAt, order: lcRef, interaction_id: s(lastConv.x.value.evidence) || null, discussed: lastConv.did.slice(0, 4) };
+    const previous_conversation = { we_spoke_at: spokeAt, order: lcRef, interaction_id: s(lastConv.x.value.evidence) || null, discussed: lastConv.did.slice(0, 4) };
     const others = items.filter((i) => !lastConv.did.includes(i.text)).slice(0, 2);
     const last = items[0] ? items[0].at : lcAt;
     this.log({ tool: "resume_conversation", ref, result: "RESUMED", session: sid, previous: prevInteractions.length });
@@ -138,7 +138,7 @@ export function installResume(Svc) {
       open_items: [...new Set(facts.filter((f) => /waiting for a team member|is open|is requested|not used yet/.test(f.text)).map((f) => f.text))].slice(0, 4) };
     void sessAt;
     return out(true, "RESUMED", say, {
-      verified: true, session_id: sid, reference: ref, expires_at: exp,
+      verified: true, session_id: sid, reference: ref,
       verification_level: "RETURNING_CUSTOMER (reference + " + factors.filter((f) => f.ok).map((f) => f.name).join(" + ") + ")",
       we_spoke_at: spokeAt, previous_conversation,
       customer_summary: { customer_id: customer_summary.customer_id, coupon_codes: customer_summary.coupon_codes, replacements: customer_summary.replacements, refunds: customer_summary.refunds, open_items: customer_summary.open_items },
