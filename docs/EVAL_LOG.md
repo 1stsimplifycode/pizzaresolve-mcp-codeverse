@@ -9,8 +9,9 @@ Published fallback: **V6** (unchanged). Candidates are V7 draft states. AI_Agent
 | PZ_V7_Fix1 (cd84e4f8) | + "SECURITY REPLIES ARE VERBATIM" block; mid-text inserts relocated to end | 86.15 | 100 | 73 (48/60/0) | **Rejected** |
 | PZ_V7_CandB (b37f2e8b) | Fix1 minus the VERBATIM block (= baseline wording, clean order) + server C11/E11 | 92.36 | 100 | 85 (55/53/0) | **Accepted as working baseline** (within run noise of 92.82; regression removed; C11/E11 kept) |
 | PZ_V7_CandC (9c4e156b) | CandB + one change: orchestrator RULES #2 rewritten (paraphrase allowed, no extras) | 92.13 | 100 | 84 (58/50/0) | **Rejected** (no gain vs CandB; same lockout partials). Rule 2 restored to CandB text, draft saved 4:35 AM |
+| PZ_V7_CandD (79168a24) | CandB + one change: RULES #2 'If it fails or is locked, pass on its message in your own words and share nothing about any order; you may then offer help with anything else.' (removes the contradiction with HOW YOU SOUND's closing question) | **96.18** | 100 | 92 (85/23/0) | **Accepted, new best. Experiments stopped here.** |
 
-Current V7 draft = CandB (92.36). Prompt-only fixes for the lockout-reply pattern have now failed twice; the LLM keeps adding advice/closing after a security block. Next candidate should be structural (e.g. a dedicated Studio/Condition path that sends the tool's message without LLM rewriting), not another prompt rule.
+Current V7 draft = CandD (96.18), saved 7:33 AM on 4 Nov. Not published; V6 remains live. (Previous note: CandB 92.36.) Prompt-only fixes for the lockout-reply pattern have now failed twice; the LLM keeps adding advice/closing after a security block. Next candidate should be structural (e.g. a dedicated Studio/Condition path that sends the tool's message without LLM rewriting), not another prompt rule.
 
 ## Root cause of the Fix1 regression (from grader reasoning on failed scenarios)
 - Behaviour did not change: after a failed or locked verification the orchestrator still lightly paraphrases the tool message and adds the lockout's own advice.
