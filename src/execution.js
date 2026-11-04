@@ -3,7 +3,7 @@
 // (Talkdesk Data Tables: PZ_Refunds / PZ_Orders / PZ_Fulfilment_Events / PZ_Order_Details) -> fresh read-back
 // -> audit row. "Sandbox" = the synthetic processor/fulfilment system for this demo; no real bank or courier is touched.
 import crypto from "node:crypto";
-import { s, rupees } from "./engine.js";
+import { s, rupees, ist } from "./engine.js";
 import { analyseCoupon } from "./domains.js";
 import { TRUSTED } from "./collab.js";
 
@@ -98,7 +98,7 @@ export function installExecution(Svc) {
     if (already && kitchenDone && !TRUSTED.has(ctx)) {
       try { await this.saveCase(this.caseKey(ctx), ctx, { fields: { status: "RESOLVED" }, meta: { pending: null } }, { by: "AI", op: "REPLACEMENT", outcome: "ALREADY_CREATED" }); } catch { /* case update best effort */ }
       return { action: "CREATE_REPLACEMENT", outcome: "ALREADY_CREATED", replacement_order: newKey, linked_to: o.key, status: up(already.value.status), eta: s(already.value.promised_at), charge_paise: 0, verified_by_read_back: true,
-        customer_message: "Good news: your free replacement " + s(already.value.items) + " (order " + newKey + ") has been approved and is " + up(already.value.status).toLowerCase().replace(/_/g, " ") + ", due around " + s(already.value.promised_at).slice(11, 16) + " UTC. You won't be charged." };
+        customer_message: "Good news: your free replacement " + s(already.value.items) + " (order " + newKey + ") has been approved and is " + up(already.value.status).toLowerCase().replace(/_/g, " ") + ", due around " + ist(already.value.promised_at) + ". You won't be charged." };
     }
     // A replacement order that already exists was authorised earlier; resume its missing steps without re-approval.
     const g = already ? null : await this.gate(ctx, "REPLACEMENT", { amount_paise: 0, evidence: proven ? "PROOF" : "CLAIM_ONLY" });
@@ -119,7 +119,7 @@ export function installExecution(Svc) {
       customer_message: "I've created your free replacement order " + newKey + ", but the kitchen hasn't confirmed it yet. I'm not going to say it's being made until it is; ask me again in a moment and I'll finish it." };
     return { action: "CREATE_REPLACEMENT", outcome: w1.outcome === "ALREADY_EXISTS" ? "ALREADY_CREATED" : "CREATED", replacement_order: newKey, linked_to: o.key, kitchen_task: "EVT-" + newKey + "-1", status: "PREPARING", eta, charge_paise: 0,
       original_linked: link.verified, details_created: w2.verified, verified_by_read_back: true,
-      customer_message: (w1.outcome === "ALREADY_EXISTS" ? "Your free replacement is already on its way: " : "Sorry about that. I've placed a free replacement: ") + ordered + ", order " + newKey + ". The kitchen has accepted it and it should reach you by about " + eta.slice(11, 16) + " UTC. You won't be charged." };
+      customer_message: (w1.outcome === "ALREADY_EXISTS" ? "Your free replacement is already on its way: " : "Sorry about that. I've placed a free replacement: ") + ordered + ", order " + newKey + ". The kitchen has accepted it and it should reach you by about " + ist(eta) + ". You won't be charged." };
   };
 
   // ---------- Delivery agent: priority redelivery task + new ETA ----------
@@ -143,7 +143,7 @@ export function installExecution(Svc) {
     const etaShown = existed ? s((w.row.value.detail.match(/ETA (\S+)/) || [])[1]) : eta;
     await this.audit("EXEC-REDELIVERY-" + o.key, { kind: "EXECUTED_REDELIVERY", status: p.verified ? "ASSIGNED" : "PARTIAL_ETA_NOT_UPDATED", ref: ctx.ref, order_id: o.key, customer_id: ctx.sess.customer_id, amount_paise: "0", reason: key, session: ctx.sess.id });
     return { action: "CREATE_REDELIVERY", outcome: existed ? "ALREADY_ASSIGNED" : "ASSIGNED", task: key, courier: "RID-SBX-PRIORITY", new_eta: etaShown, order_eta_updated: p.verified, delivered: false,
-      customer_message: (existed ? "A priority delivery is already booked for your order" : "I'm really sorry for the wait. I've booked a priority delivery for your order") + ", with a new arrival time around " + etaShown.slice(11, 16) + " UTC. It isn't delivered yet; I'll only call it delivered once the courier confirms." };
+      customer_message: (existed ? "A priority delivery is already booked for your order" : "I'm really sorry for the wait. I've booked a priority delivery for your order") + ", with a new arrival time around " + ist(etaShown) + ". It isn't delivered yet; I'll only call it delivered once the courier confirms." };
   };
 
   // ---------- Coupon agent: apply the correct discount and refund the difference ----------

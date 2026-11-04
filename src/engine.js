@@ -38,6 +38,8 @@ const INJECTION = /ignore (all |previous |prior )?instructions|system prompt|you
 
 // ---------- small helpers ----------
 export const s = (v) => (v === undefined || v === null ? "" : String(v)).trim();
+// Customer-facing clock time in India Standard Time (UTC+5:30), e.g. "10:35 IST".
+export const ist = (iso) => { const d = new Date(String(iso)); return Number.isFinite(d.getTime()) ? new Date(d.getTime() + 330 * 60000).toISOString().slice(11, 16) + " IST" : String(iso).slice(11, 16) + " UTC"; };
 const up = (v) => s(v).toUpperCase();
 const int = (v) => { const n = parseInt(s(v), 10); return Number.isFinite(n) ? n : NaN; };
 const t = (v) => { const ms = Date.parse(s(v)); return Number.isFinite(ms) ? ms : NaN; };
@@ -301,7 +303,7 @@ export function analyseDelivery({ order, events, reported, now, deliveryAvailabl
     const eta = (s(redispatch.value.detail).match(/ETA (\S+)/) || [])[1] || "";
     evidence.push(ev(redispatch.key, "DISPATCH", "priority redelivery assigned at " + s(redispatch.value.at) + (eta ? ", estimated arrival " + eta : "")));
     findings.push({ issue: "REDELIVERY_BOOKED", decision: "ACTION_PENDING", ref: redispatch.key,
-      say: "A priority redelivery is already booked for this order" + (eta ? ", with an estimated arrival around " + eta.slice(11, 16) + " UTC (a dispatch estimate; the courier hasn't confirmed it yet)" : "") + ". It isn't delivered yet." });
+      say: "A priority redelivery is already booked for this order" + (eta ? ", with an estimated arrival around " + ist(eta) + " (a dispatch estimate; the courier hasn't confirmed it yet)" : "") + ". It isn't delivered yet." });
     return { findings, evidence, flags, recovery: [], redeliveryBooked: true };
   }
   const overdueBy = mins(now, promised);
