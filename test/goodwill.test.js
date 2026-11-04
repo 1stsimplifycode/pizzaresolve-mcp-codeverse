@@ -108,3 +108,16 @@ test("R3 verify_customer with only the postcode resumes a recently verified cust
   const fresh2 = await svc.verifyCustomer({ reference: "ORD-8006", phone_last4: "", postcode: "560102", requester: "self" });
   assert.equal(fresh2.verified, false); // never verified before -> normal path, no shortcut
 });
+
+test("R4 'we spoke at' refers to the order the customer names, not just the latest conversation", async () => {
+  const { svc, nowRef } = fresh();
+  const s1 = await login(svc, "ORD-8002", "2468", "560078", "intX-0000000001");
+  await svc.createRedeliveryTask({ session_id: s1, reference: "ORD-8002" });
+  nowRef.v += 30 * 60000;
+  await login(svc, "ORD-8009", "2468", "560078", "intY-0000000002"); // a later chat about another order
+  nowRef.v += 60 * 60000;
+  const r = await svc.resumeConversation({ reference: "ORD-8002", postcode: "560078" });
+  assert.match(r.customer_message, /we spoke today at \d\d:\d\d IST about order ORD-8002/);
+  assert.match(r.customer_message, /redelivery/);
+  assert.equal(r.previous_conversation.interaction_id, "intX-0000000001");
+});

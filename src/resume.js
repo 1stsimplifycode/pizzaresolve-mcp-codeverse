@@ -95,7 +95,11 @@ export function installResume(Svc) {
     const prevInteractions = [...new Set([...priorSessions.map((x) => s(x.value.evidence)), ...ledger.filter((l) => up(l.value.kind) === "GOODWILL_COUPON" && s(l.value.customer_id) === customer.key).map((l) => s(l.value.evidence))].filter(Boolean))].slice(0, 5);
     // The last conversation: the most recent earlier session that has something on record, and what happened in it.
     const bySession = (sidKey) => ledger.filter((l) => s(l.value.session) === sidKey && l.key !== sidKey).map((l) => describe(l)).filter(Boolean);
-    const lastConv = priorSessions.map((x) => ({ x, did: [...new Set(bySession(x.key))] })).find((c) => c.did.length) || { x: priorSessions[0], did: [] };
+    // Prefer the last conversation about the order the customer names; fall back to the latest one on the account.
+    const aboutRef = (x) => s(x.value.ref) === ref || ledger.some((l) => s(l.value.session) === x.key && s(l.value.order_id) === ref);
+    const pool = priorSessions.filter(aboutRef).length ? priorSessions.filter(aboutRef) : priorSessions;
+    const refItems = [...new Set(facts.filter((f) => f.order_id === ref).map((f) => f.text))];
+    const lastConv = { x: pool[0], did: [...new Set([...bySession(pool[0].key), ...refItems])] };
     const lcAt = s(lastConv.x.value.created_at), lcRef = s(lastConv.x.value.ref);
     const dayIst = (ms) => new Date(ms + 330 * 60000).toISOString().slice(0, 10);
     const dayWord = dayIst(t(lcAt)) === dayIst(now) ? "today" : dayIst(t(lcAt)) === dayIst(now - 86400000) ? "yesterday" : "on " + dayIst(t(lcAt));
