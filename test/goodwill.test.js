@@ -121,3 +121,13 @@ test("R4 'we spoke at' refers to the order the customer names, not just the late
   assert.match(r.customer_message, /redelivery/);
   assert.equal(r.previous_conversation.interaction_id, "intX-0000000001");
 });
+
+test("R5 resume never exposes old session ids (agents must only see the new one)", async () => {
+  const { svc, nowRef } = fresh();
+  const old = await login(svc, "ORD-8002", "2468", "560078");
+  nowRef.v += 3600000;
+  const r = await svc.resumeConversation({ reference: "ORD-8002", postcode: "560078" });
+  const ids = JSON.stringify(r).match(/VS-[A-Z2-7]{10}/g) || [];
+  assert.ok(ids.length > 0 && ids.every((x) => x === r.session_id), ids.join(","));
+  assert.ok(!JSON.stringify(r).includes(old));
+});

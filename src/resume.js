@@ -104,7 +104,7 @@ export function installResume(Svc) {
     const dayIst = (ms) => new Date(ms + 330 * 60000).toISOString().slice(0, 10);
     const dayWord = dayIst(t(lcAt)) === dayIst(now) ? "today" : dayIst(t(lcAt)) === dayIst(now - 86400000) ? "yesterday" : "on " + dayIst(t(lcAt));
     const spokeAt = dayWord + " at " + ist(lcAt);
-    const previous_conversation = { at: lcAt, at_ist: spokeAt, order: lcRef, interaction_id: s(lastConv.x.value.evidence) || null, session: lastConv.x.key, discussed: lastConv.did.slice(0, 4) };
+    const previous_conversation = { at: lcAt, at_ist: spokeAt, order: lcRef, interaction_id: s(lastConv.x.value.evidence) || null, discussed: lastConv.did.slice(0, 4) };
     const others = items.filter((i) => !lastConv.did.includes(i.text)).slice(0, 2);
     const last = items[0] ? items[0].at : lcAt;
     this.log({ tool: "resume_conversation", ref, result: "RESUMED", session: sid, previous: prevInteractions.length });
@@ -115,8 +115,8 @@ export function installResume(Svc) {
       verified: true, session_id: sid, reference: ref, expires_at: exp,
       verification_level: "RETURNING_CUSTOMER (reference + " + factors.filter((f) => f.ok).map((f) => f.name).join(" + ") + "; fully verified in an earlier conversation within " + RESUME.WINDOW_DAYS + " days)",
       previous_conversation,
-      previous_context: { last_contact: last, previous_interactions: prevInteractions, previous_sessions: priorSessions.slice(0, 3).map((x) => ({ session: x.key, at: s(x.value.created_at), order: s(x.value.ref) })), items },
+      previous_context: { last_contact: last, previous_interactions: prevInteractions, previous_conversations: priorSessions.slice(0, 3).map((x) => ({ at: s(x.value.created_at), order: s(x.value.ref), interaction_id: s(x.value.evidence) || null })), items },
       reply_rule: "Start your reply with: 'Yes, we spoke " + spokeAt + " about order " + lcRef + "' and then what was done, in the customer's language.",
-      next_step_for_ai: "The customer is verified for this conversation: use this session_id for every tool. Do not ask them to repeat the problem; use previous_context." });
+      next_step_for_ai: "The customer is verified for this conversation: use ONLY this session_id (" + sid + ") for every tool; older sessions have expired. Do not ask them to repeat the problem; use previous_context." });
   };
 }
