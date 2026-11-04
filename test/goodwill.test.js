@@ -117,7 +117,7 @@ test("R4 'we spoke at' refers to the order the customer names, not just the late
   await login(svc, "ORD-8009", "2468", "560078", "intY-0000000002"); // a later chat about another order
   nowRef.v += 60 * 60000;
   const r = await svc.resumeConversation({ reference: "ORD-8002", postcode: "560078" });
-  assert.match(r.customer_message, /we spoke today at \d{1,2}:\d\d [AP]M \(IST\) about order ORD-8002/);
+  assert.match(r.customer_message, /Yes, I spoke to you today at \d{1,2}:\d\d [AP]M \(IST\) about order ORD-8002/);
   assert.match(r.customer_message, /redelivery/);
   assert.equal(r.previous_conversation.interaction_id, "intX-0000000001");
 });
