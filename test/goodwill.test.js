@@ -75,6 +75,9 @@ test("R1 a customer who closed the chat resumes later with order + postcode only
   assert.ok(r.previous_context.previous_interactions.includes("intA-0000000001"));
   assert.match(r.customer_message, new RegExp(g.coupon_code));
   assert.match(r.customer_message, /redelivery/);
+  assert.match(r.customer_message, /Yes, we spoke (today|yesterday|on [0-9-]+) at \d\d:\d\d IST about order ORD-8002/);
+  assert.equal(r.previous_conversation.interaction_id, "intA-0000000001");
+  assert.ok(r.previous_conversation.discussed.some((d) => /redelivery/.test(d)));
   // The resumed session works for follow-ups on any of the customer's own orders.
   const h = await svc.getCase({ session_id: r.session_id, reference: "ORD-8007" });
   assert.notEqual(h.reason_code, "NOT_VERIFIED");

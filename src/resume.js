@@ -93,14 +93,26 @@ export function installResume(Svc) {
       .filter((f) => f.text);
     const seen = new Set(); const items = facts.filter((f) => !seen.has(f.text) && seen.add(f.text)).slice(0, RESUME.MAX_ITEMS);
     const prevInteractions = [...new Set([...priorSessions.map((x) => s(x.value.evidence)), ...ledger.filter((l) => up(l.value.kind) === "GOODWILL_COUPON" && s(l.value.customer_id) === customer.key).map((l) => s(l.value.evidence))].filter(Boolean))].slice(0, 5);
-    const last = items[0] ? items[0].at : s(priorSessions[0].value.created_at);
+    // The last conversation: the most recent earlier session that has something on record, and what happened in it.
+    const bySession = (sidKey) => ledger.filter((l) => s(l.value.session) === sidKey && l.key !== sidKey).map((l) => describe(l)).filter(Boolean);
+    const lastConv = priorSessions.map((x) => ({ x, did: [...new Set(bySession(x.key))] })).find((c) => c.did.length) || { x: priorSessions[0], did: [] };
+    const lcAt = s(lastConv.x.value.created_at), lcRef = s(lastConv.x.value.ref);
+    const dayIst = (ms) => new Date(ms + 330 * 60000).toISOString().slice(0, 10);
+    const dayWord = dayIst(t(lcAt)) === dayIst(now) ? "today" : dayIst(t(lcAt)) === dayIst(now - 86400000) ? "yesterday" : "on " + dayIst(t(lcAt));
+    const spokeAt = dayWord + " at " + ist(lcAt);
+    const previous_conversation = { at: lcAt, at_ist: spokeAt, order: lcRef, interaction_id: s(lastConv.x.value.evidence) || null, session: lastConv.x.key, discussed: lastConv.did.slice(0, 4) };
+    const others = items.filter((i) => !lastConv.did.includes(i.text)).slice(0, 2);
+    const last = items[0] ? items[0].at : lcAt;
     this.log({ tool: "resume_conversation", ref, result: "RESUMED", session: sid, previous: prevInteractions.length });
-    const head = "Welcome back " + s(cv.first_name) + ".";
-    const body = items.length ? " Here's where we left off (last update " + when(last) + "): " + items.slice(0, 3).map((i) => i.text).join("; ") + "." : " I can see your recent orders.";
-    return out(true, "RESUMED", head + body + " What would you like to follow up on?", {
+    const say = "Welcome back " + s(cv.first_name) + "! Yes, we spoke " + spokeAt + " about order " + lcRef +
+      (lastConv.did.length ? ": " + lastConv.did.slice(0, 3).join("; ") + "." : ".") +
+      (others.length ? " Also on your account: " + others.map((i) => i.text).join("; ") + "." : "") + " What would you like to follow up on?";
+    return out(true, "RESUMED", say, {
       verified: true, session_id: sid, reference: ref, expires_at: exp,
       verification_level: "RETURNING_CUSTOMER (reference + " + factors.filter((f) => f.ok).map((f) => f.name).join(" + ") + "; fully verified in an earlier conversation within " + RESUME.WINDOW_DAYS + " days)",
+      previous_conversation,
       previous_context: { last_contact: last, previous_interactions: prevInteractions, previous_sessions: priorSessions.slice(0, 3).map((x) => ({ session: x.key, at: s(x.value.created_at), order: s(x.value.ref) })), items },
+      reply_rule: "Start your reply with: 'Yes, we spoke " + spokeAt + " about order " + lcRef + "' and then what was done, in the customer's language.",
       next_step_for_ai: "The customer is verified for this conversation: use this session_id for every tool. Do not ask them to repeat the problem; use previous_context." });
   };
 }
