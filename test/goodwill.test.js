@@ -62,3 +62,33 @@ test("G3 a wrong session_id like 'verified' gets an agent hint instead of a sile
   assert.equal(r.reason_code, "NOT_VERIFIED");
   assert.match(r.agent_hint, /VS-/);
 });
+
+test("R1 a customer who closed the chat resumes later with order + postcode only, and the history comes back", async () => {
+  const { svc, nowRef } = fresh();
+  const sA = await login(svc, "ORD-8002", "2468", "560078", "intA-0000000001");
+  await svc.createRedeliveryTask({ session_id: sA, reference: "ORD-8002" });
+  const g = await svc.issueGoodwillCoupon({ session_id: sA, reference: "ORD-8002", conversation_id: "intA-0000000001" });
+  nowRef.v += 3 * 3600000; // three hours later, new conversation; the old session has expired
+  const r = await svc.resumeConversation({ reference: "order eight zero zero two", postcode: "five six zero zero seven eight", conversation_id: "intB-0000000002" });
+  assert.equal(r.resumed, true, JSON.stringify(r));
+  assert.match(r.session_id, /^VS-/);
+  assert.ok(r.previous_context.previous_interactions.includes("intA-0000000001"));
+  assert.match(r.customer_message, new RegExp(g.coupon_code));
+  assert.match(r.customer_message, /redelivery/);
+  // The resumed session works for follow-ups on any of the customer's own orders.
+  const h = await svc.getCase({ session_id: r.session_id, reference: "ORD-8007" });
+  assert.notEqual(h.reason_code, "NOT_VERIFIED");
+});
+
+test("R2 resume refuses strangers: no prior verification, wrong postcode counts toward lockout, caller id alone is enough on voice", async () => {
+  const { svc } = fresh();
+  const none = await svc.resumeConversation({ reference: "ORD-8006", postcode: "560102" });
+  assert.equal(none.reason_code, "NEED_FULL_VERIFICATION");
+  await login(svc, "ORD-8006", "1357", "560102");
+  const wrong = await svc.resumeConversation({ reference: "ORD-8006", postcode: "560001" });
+  assert.equal(wrong.resumed, false); assert.equal(wrong.reason_code, "DETAILS_NOT_VERIFIED");
+  const ask = await svc.resumeConversation({ reference: "ORD-8006" });
+  assert.equal(ask.reason_code, "NEED_ONE_DETAIL");
+  const voice = await svc.resumeConversation({ reference: "ORD-8006", caller_id: "+91 98450 01357" });
+  assert.equal(voice.resumed, true, JSON.stringify(voice));
+});

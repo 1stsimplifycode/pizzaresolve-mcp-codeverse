@@ -162,6 +162,17 @@ function buildServer() {
       platform_session_id: z.string().optional().describe("Talkdesk Session ID (mapped by the platform)") },
     async (a) => safe("honour_goodwill_coupon", () => service.honourGoodwillCoupon(a)));
 
+  // ---------------- conversation resume across conversations (addition) ----------------
+  mcp.tool("resume_conversation",
+    "Identity agent: when a customer comes back in a NEW conversation to follow up ('I spoke to you earlier', 'about my refund', a CASE- reference), re-opens a verified session with the order/case reference plus ONE detail (postcode or phone last 4; the caller's number counts on voice), if they were fully verified in the last 7 days. Returns session_id and previous_context so the customer does not repeat themselves.",
+    { reference: z.string().describe("Order, payment or CASE- reference, as the caller said it"),
+      postcode: z.string().optional().describe("Delivery postcode as said, if given"),
+      phone_last4: z.string().optional().describe("Last 4 phone digits as said, if given"),
+      caller_id: z.string().optional().describe("Talkdesk Caller ID (mapped by the platform)"),
+      conversation_id: z.string().optional().describe("Talkdesk Interaction ID (mapped by the platform)"),
+      platform_session_id: z.string().optional().describe("Talkdesk Session ID (mapped by the platform)") },
+    async (a) => safe("resume_conversation", () => service.resumeConversation(a)));
+
   return mcp;
 }
 

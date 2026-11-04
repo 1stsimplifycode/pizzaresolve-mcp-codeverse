@@ -7,6 +7,7 @@ import { installMultiAgent } from "./multiagent.js";
 import { installExecution } from "./execution.js";
 import { installCollab } from "./collab.js";
 import { installGoodwill } from "./goodwill.js";
+import { installResume } from "./resume.js";
 import { spokenDigits, readDigits, readPhoneLast4, readPostcode } from "./spoken.js";
 
 const up = (v) => s(v).toUpperCase();
@@ -159,7 +160,7 @@ export class PizzaService {
     const sid = "VS-" + base32(crypto.randomBytes(7)).slice(0, 10);
     const exp = new Date(now + POLICY.SESSION_TTL_MIN * 60000).toISOString();
     try {
-      const r = await this.store.create("ledger", sid, { kind: "SESSION", ref, customer_id: customer.key, status: "ACTIVE", created_at: this.iso(), expires_at: exp });
+      const r = await this.store.create("ledger", sid, { kind: "SESSION", ref, customer_id: customer.key, status: "ACTIVE", evidence: cid, created_at: this.iso(), expires_at: exp });
       if (r.status !== "CREATED") throw new Error("session collision");
     } catch {
       return { verified: false, decision: "INSUFFICIENT_EVIDENCE", reason_code: "SESSION_NOT_CREATED", customer_message: "I matched your details but couldn't start a secure session, so I can't continue. Please try again in a moment." };
@@ -309,6 +310,7 @@ installMultiAgent(PizzaService);
 installExecution(PizzaService);
 installCollab(PizzaService);
 installGoodwill(PizzaService);
+installResume(PizzaService);
 
 function base32(buf) {
   const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
