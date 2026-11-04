@@ -140,7 +140,7 @@ export function installResume(Svc) {
       verified: true, session_id: sid, reference: ref, expires_at: exp,
       verification_level: "RETURNING_CUSTOMER (reference + " + factors.filter((f) => f.ok).map((f) => f.name).join(" + ") + "; fully verified in an earlier conversation within " + RESUME.WINDOW_DAYS + " days)",
       previous_conversation, conversations, customer_summary,
-      previous_context: { last_contact: last, previous_interactions: prevInteractions, previous_conversations: priorSessions.slice(0, 3).map((x) => ({ at: s(x.value.created_at), order: s(x.value.ref), interaction_id: s(x.value.evidence) || null })), items },
+      previous_context: { customer_summary, conversations, last_contact: last, previous_interactions: prevInteractions, previous_conversations: priorSessions.slice(0, 3).map((x) => ({ at: s(x.value.created_at), order: s(x.value.ref), interaction_id: s(x.value.evidence) || null })), items },
       reply_rule: "Start your reply with: '" + remember + "' and then what was done, in the customer's language.",
       next_step_for_ai: "The customer is verified for this conversation: use ONLY this session_id (" + sid + ") for every tool; older sessions have expired. Do not ask them to repeat the problem; use previous_context." });
   };
